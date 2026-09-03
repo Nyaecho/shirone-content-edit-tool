@@ -1,0 +1,25 @@
+[Unit]
+Description=Shirone Admin - blog content writing tool
+After=network.target
+
+[Service]
+Type=simple
+# 修改为你的部署用户与路径
+User=www-data
+WorkingDirectory=/opt/shirone-admin
+ExecStart=/usr/bin/node --env-file=/opt/shirone-admin/.env server.js
+Restart=on-failure
+RestartSec=5
+# 内存上限（本工具很轻，256MB 足够）
+MemoryMax=256M
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/shirone-admin
+
+# 环境变量优先级：进程环境 > .env 文件
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

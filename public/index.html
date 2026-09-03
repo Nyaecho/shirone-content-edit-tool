@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Shirone 写作台</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/vendor/easymde/easymde.min.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- 登录视图 -->
+  <template id="tpl-login">
+    <div class="login-wrap">
+      <form class="login-card" id="login-form">
+        <h1 class="login-title">Shirone 写作台</h1>
+        <p class="login-sub">内容仓在线写作工具</p>
+        <label class="field">
+          <span class="field-label">访问密码</span>
+          <input type="password" name="password" autocomplete="current-password" required />
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">进入</button>
+        <p class="login-error" id="login-error" hidden></p>
+      </form>
+    </div>
+  </template>
+
+  <!-- 主框架 -->
+  <template id="tpl-shell">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <span class="brand-mark">Shirone</span><span class="brand-sub">写作台</span>
+        <span class="badge badge-dev" id="dev-badge" hidden>DEV 下载模式</span>
+      </div>
+      <nav class="topbar-nav">
+        <button class="nav-btn" data-view="posts">文章</button>
+        <button class="nav-btn" data-view="moments">动态</button>
+      </nav>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="btn-logout">退出</button>
+      </div>
+    </header>
+    <main class="main" id="main"></main>
+
+    <!-- 文章列表 -->
+    <template id="tpl-posts">
+      <div class="page-head">
+        <h2>文章</h2>
+        <button class="btn btn-primary" id="btn-new-post">新建文章</button>
+      </div>
+      <div class="filter-row">
+        <input type="search" class="search-input" id="post-search" placeholder="搜索标题 / 标签 / 分类…" />
+        <label class="check"><input type="checkbox" id="post-hide-draft" /> 隐藏草稿</label>
+      </div>
+      <div class="card-list" id="post-list"></div>
+    </template>
+
+    <!-- 动态列表 -->
+    <template id="tpl-moments">
+      <div class="page-head">
+        <h2>动态</h2>
+        <button class="btn btn-primary" id="btn-new-moment">发动态</button>
+      </div>
+      <div class="filter-row">
+        <input type="search" class="search-input" id="moment-search" placeholder="搜索内容 / 标签…" />
+        <label class="check"><input type="checkbox" id="moment-hide-draft" /> 隐藏草稿</label>
+      </div>
+      <div class="card-list" id="moment-list"></div>
+    </template>
+
+    <!-- 文章编辑器 -->
+    <template id="tpl-post-editor">
+      <div class="editor-head">
+        <button class="btn btn-ghost" id="btn-back">← 返回</button>
+        <div class="editor-head-actions">
+          <label class="check"><input type="checkbox" id="pe-refresh-updated" /> 刷新更新时间</label>
+          <button class="btn btn-ghost" id="btn-delete-post">删除</button>
+          <button class="btn btn-primary" id="btn-save-post">保存</button>
+        </div>
+      </div>
+      <div class="editor-grid">
+        <section class="editor-meta card">
+          <h3>文章信息</h3>
+          <label class="field"><span class="field-label">标题 *</span>
+            <input type="text" id="pe-title" placeholder="文章标题（支持中文）" /></label>
+          <label class="field"><span class="field-label">Slug（URL 标识）*</span>
+            <input type="text" id="pe-slug" placeholder="my-post（小写字母-数字-连字符）" />
+            <span class="field-hint">只允许小写字母、数字与连字符；新建时从标题自动生成建议值</span></label>
+          <div class="field-row">
+            <label class="field"><span class="field-label">分类</span>
+              <input type="text" id="pe-category" list="category-options" placeholder="如：使用指南" />
+              <datalist id="category-options"></datalist></label>
+            <label class="field"><span class="field-label">封面图</span>
+              <input type="text" id="pe-image" placeholder="./cover.webp 或外链" /></label>
+          </div>
+          <label class="field"><span class="field-label">标签</span>
+            <input type="text" id="pe-tags" placeholder="回车添加，如：博客、指南" />
+            <span class="field-hint">输入后按回车添加</span></label>
+          <div class="tag-box" id="pe-tag-box"></div>
+          <label class="field"><span class="field-label">摘要</span>
+            <textarea id="pe-description" rows="3" placeholder="留空则自动截取正文前段"></textarea></label>
+          <div class="switch-row">
+            <label class="switch"><input type="checkbox" id="pe-pinned" /><span>置顶</span></label>
+            <label class="switch"><input type="checkbox" id="pe-draft" /><span>草稿（生产站点隐藏）</span></label>
+            <label class="switch"><input type="checkbox" id="pe-comment" checked /><span>开启评论</span></label>
+          </div>
+          <div class="meta-note" id="pe-meta-note" hidden></div>
+        </section>
+        <section class="editor-body">
+          <div class="upload-bar card">
+            <span>拖拽图片到编辑器，或</span>
+            <button class="btn btn-ghost" id="btn-upload-image">上传图片</button>
+            <input type="file" id="pe-file" accept="image/*" multiple hidden />
+            <div class="upload-list" id="pe-upload-list"></div>
+          </div>
+          <textarea id="pe-md"></textarea>
+        </section>
+      </div>
+    </template>
+
+    <!-- 动态编辑器 -->
+    <template id="tpl-moment-editor">
+      <div class="editor-head">
+        <button class="btn btn-ghost" id="btn-back">← 返回</button>
+        <div class="editor-head-actions">
+          <button class="btn btn-ghost" id="btn-delete-moment">删除</button>
+          <button class="btn btn-primary" id="btn-save-moment">发布</button>
+        </div>
+      </div>
+      <div class="moment-editor card">
+        <textarea id="me-md" placeholder="此刻的想法…（支持 Markdown）"></textarea>
+        <div class="field-row">
+          <div class="field">
+            <span class="field-label">心情</span>
+            <div class="mood-row" id="me-moods"></div>
+          </div>
+          <label class="field"><span class="field-label">地点</span>
+            <div class="loc-row">
+              <input type="text" id="me-location" placeholder="如：北京 · 朝阳" />
+              <button type="button" class="btn btn-ghost" id="btn-locate" title="通过浏览器获取当前位置（精确到省）">📍 定位</button>
+            </div>
+            <span class="field-hint" id="locate-hint">点击定位自动填入；GPS 需授权，拒绝时自动改用 IP 定位</span></label>
+          <label class="field"><span class="field-label">标签</span>
+            <input type="text" id="me-tags" placeholder="回车添加" /></label>
+        </div>
+        <div class="tag-box" id="me-tag-box"></div>
+        <div class="field-row">
+          <label class="switch"><input type="checkbox" id="me-pinned" /><span>置顶</span></label>
+          <label class="switch"><input type="checkbox" id="me-draft" /><span>草稿</span></label>
+        </div>
+        <div class="moment-images">
+          <div class="moment-images-head">
+            <span class="field-label">图片（九宫格，最多 9 张）</span>
+            <button class="btn btn-ghost" id="btn-upload-moment-image">添加图片</button>
+            <input type="file" id="me-file" accept="image/*" multiple hidden />
+          </div>
+          <div class="moment-image-grid" id="me-image-grid"></div>
+        </div>
+        <div class="upload-list" id="me-upload-list"></div>
+      </div>
+    </template>
+  </template>
+
+  <!-- 通用对话框 -->
+  <dialog id="dlg"></dialog>
+  <div id="toast-box"></div>
+
+  <script src="/vendor/easymde/easymde.min.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

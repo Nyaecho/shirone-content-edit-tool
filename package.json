@@ -1,0 +1,22 @@
+{
+  "name": "shirone-admin",
+  "version": "1.0.0",
+  "description": "Shirone 博客内容仓在线写作工具 — 表单化编辑文章与动态，经 GitHub Contents API 推送内容仓",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "dev": "node --env-file=.env.development server.js"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "gray-matter": "^4.0.3",
+    "jszip": "^3.10.1",
+    "multer": "^1.4.5-lts.1",
+    "yaml": "^2.5.1"
+  },
+  "license": "MIT"
+}

@@ -17,6 +17,7 @@ import * as postsService from "../services/posts.js";
 import * as momentsService from "../services/moments.js";
 import { momentAssetPath, postAssetPath } from "../lib/content.js";
 import { getImage } from "../lib/image-staging.js";
+import { deployEnabled, verifySignature, acceptDeploy, getTicketState } from "../lib/deploy.js";
 import JSZip from "jszip";
 import crypto from "node:crypto";
 
@@ -45,11 +46,76 @@ router.get("/session", (req, res) => {
   res.json({ ok: true, data: { authenticated: false, devMode: isDev() } });
 });
 
+// ---------- 部署 webhook（主题仓 Actions 调用，HMAC 签名认证，不走 Cookie） ----------
+
+// 需要原始请求体计算签名，这里注册一个仅作用于该路由的 raw-body 解析
+const deployRawBody = express.json({
+  limit: "64kb",
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  },
+});
+
+/**
+ * POST /api/deploy/hook   受理部署（Actions 通知，X-Signature 签名验证）
+ * GET  /api/deploy/hook?ticket=xxx  轮询部署回执（同样要求签名）
+ */
+router.post("/deploy/hook", deployRawBody, (req, res) => {
+  try {
+    if (!deployEnabled()) {
+      return res.status(503).json({ ok: false, error: "部署功能未配置（缺少 DEPLOY_SECRET / DEPLOY_PAT）" });
+    }
+    if (!verifySignature(req.rawBody, req.headers["x-signature"])) {
+      console.warn(`[deploy] 签名校验失败，来源 IP: ${req.ip}`);
+      return res.status(401).json({ ok: false, error: "签名无效" });
+    }
+    const { repository, sha } = req.body || {};
+    if (!repository || !sha) {
+      return res.status(400).json({ ok: false, error: "缺少 repository / sha" });
+    }
+    const ticket = acceptDeploy({ repository, sha });
+    res.json({ ok: true, data: { ticket, state: "running" } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get("/deploy/hook", (req, res) => {
+  try {
+    if (!deployEnabled()) {
+      return res.status(503).json({ ok: false, error: "部署功能未配置" });
+    }
+    // 轮询同样验签：签名内容为空串（GET 无 body），与 Actions 侧约定一致
+    if (!verifySignature("", req.headers["x-signature"])) {
+      return res.status(401).json({ ok: false, error: "签名无效" });
+    }
+    const rec = getTicketState(String(req.query.ticket || ""));
+    if (!rec) return res.status(404).json({ ok: false, error: "ticket 不存在或已过期" });
+    res.json({ ok: true, data: { state: rec.state, error: rec.error || null, sha: rec.sha, head: rec.head || null } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // 以下全部需要认证
 router.use(requireAuth);
 
 router.get("/me", (req, res) => {
   res.json({ ok: true, data: { devMode: isDev(), timezone: config.siteTimezone } });
+});
+
+// ---------- 草稿图片代理（暂存区图片经此读取，供编辑器预览） ----------
+router.get("/drafts/asset", (req, res) => {
+  const p = String(req.query.path || "");
+  if (!p || p.includes("..")) return res.status(400).json({ ok: false, error: "非法路径" });
+  (async () => {
+    const data = await draftStore.getDraftImage(p);
+    if (!data) return res.status(404).json({ ok: false, error: "草稿图片不存在" });
+    const type = data.contentType || "application/octet-stream";
+    res.setHeader("Content-Type", type);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(data.buffer);
+  })().catch((err) => handleError(res, err));
 });
 
 // ---------- 文章 ----------
@@ -202,6 +268,7 @@ router.delete("/moments/:id", async (req, res) => {
  * - target: "post" | "moment"
  * - slug: 文章 slug（target=post 时必填）
  * - momentDate: 动态日期 YYYY-MM-DD（target=moment 时必填，回填时用已有 published 的前 10 位）
+ * - draft: "1" 时表示当前内容处于草稿状态——图片只落服务器暂存区，不推 GitHub
  */
 router.post("/upload", (req, res) => {
   upload.single("file")(req, res, async (err) => {
@@ -209,7 +276,7 @@ router.post("/upload", (req, res) => {
       return res.status(400).json({ ok: false, error: err.message || "上传失败" });
     }
     try {
-      const { target, slug, momentDate } = req.body || {};
+      const { target, slug, momentDate, draft } = req.body || {};
       if (!req.file) return res.status(400).json({ ok: false, error: "缺少文件" });
       if (!["post", "moment"].includes(target)) {
         return res.status(400).json({ ok: false, error: "target 必须为 post 或 moment" });
@@ -225,6 +292,19 @@ router.post("/upload", (req, res) => {
           return res.status(400).json({ ok: false, error: "momentDate 格式应为 YYYY-MM-DD" });
         }
         repoPath = momentAssetPath(momentDate, filename);
+      }
+
+      // 草稿状态：图片只存服务器暂存区（发布时自动搬运到仓库）
+      if (draft === "1") {
+        const stagedImage = await draftStore.putDraftImage(target, repoPath, req.file.buffer, req.file.mimetype);
+        const markdownRef =
+          target === "post"
+            ? `![${filename}](./${filename})`
+            : `![${filename}](${stagedImage.webPath})`;
+        return res.json({
+          ok: true,
+          data: { repoPath, webPath: stagedImage.webPath, markdownRef, filename, draftStaged: true },
+        });
       }
 
       // 生产模式直接推送到仓库；DEV 模式暂存内存
@@ -251,6 +331,20 @@ router.post("/upload", (req, res) => {
 // ---------- 保存响应（DEV 下载 / 生产提交链接） ----------
 
 async function respondWithSave(res, result, { kind, slug, id, message }) {
+  // 草稿暂存：存服务器、不推 GitHub
+  if (result.draftStaged) {
+    return res.json({
+      ok: true,
+      data: {
+        message: "已暂存到服务器（未推 GitHub，取消勾选草稿并保存即发布）",
+        path: result.path,
+        kind,
+        slug,
+        id,
+        draftStaged: true,
+      },
+    });
+  }
   if (result.devDownload) {
     // DEV：把文件 + 本会话引用的暂存图片打包下载
     const referenced = await collectReferencedImages(result.raw);

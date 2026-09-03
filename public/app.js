@@ -139,7 +139,8 @@ function drawPosts() {
     card.innerHTML = `
       <div class="cc-main">
         <div class="cc-title">${esc(p.title)}
-          ${p.draft ? '<span class="badge badge-draft">草稿</span>' : ""}
+          ${p.draftStaged ? '<span class="badge badge-staged">仅存服务器</span>' : ""}
+          ${p.draft && !p.draftStaged ? '<span class="badge badge-draft">草稿</span>' : ""}
           ${p.pinned ? '<span class="badge badge-pinned">置顶</span>' : ""}
         </div>
         <div class="cc-sub">${esc([p.category, ...(p.tags || [])].filter(Boolean).map((t) => `#${t}`).join(" "))}</div>
@@ -199,7 +200,8 @@ function drawMoments() {
     card.innerHTML = `
       <div class="cc-main">
         <div class="cc-title">${esc(m.excerpt || "(无文字)")}
-          ${m.draft ? '<span class="badge badge-draft">草稿</span>' : ""}
+          ${m.draftStaged ? '<span class="badge badge-staged">仅存服务器</span>' : ""}
+          ${m.draft && !m.draftStaged ? '<span class="badge badge-draft">草稿</span>' : ""}
           ${m.pinned ? '<span class="badge badge-pinned">置顶</span>' : ""}
           ${m.imageCount ? `<span class="badge">🖼 ${m.imageCount}</span>` : ""}
         </div>
@@ -239,6 +241,23 @@ async function openPostEditor(slug) {
   qs("#pe-refresh-updated").closest("label").hidden = isNew;
   state.tags.post = Array.isArray(fm.tags) ? [...fm.tags] : [];
   drawTags("post");
+
+  // 草稿勾选联动：保存按钮在“发布 / 暂存”间切换
+  const syncPostSaveBtn = () => {
+    const btn = qs("#btn-save-post");
+    if (!btn || btn.disabled) return;
+    btn.textContent = qs("#pe-draft").checked ? "暂存" : "发布";
+    btn.classList.toggle("btn-staged", qs("#pe-draft").checked);
+    const hint = qs("#pe-draft").closest("label").querySelector("span");
+    if (hint) hint.textContent = qs("#pe-draft").checked ? "草稿（仅存服务器，不推 GitHub）" : "草稿（生产站点隐藏）";
+  };
+  qs("#pe-draft").addEventListener("change", syncPostSaveBtn);
+  syncPostSaveBtn();
+  if (post.draftStaged) {
+    const note = qs("#pe-meta-note");
+    note.hidden = false;
+    note.textContent = "此文为服务器暂存草稿：取消勾选草稿并保存即推送到 GitHub 发布";
+  }
 
   // 元信息提示（保护未知字段，如加密文章）
   const unknownKeys = Object.keys(fm).filter(
@@ -390,8 +409,9 @@ async function savePost(isNew) {
   const body = state.editors.post.value();
   const payload = { form, body };
   const btn = qs("#btn-save-post");
+  const isDraft = form.draft === true;
   btn.disabled = true;
-  btn.textContent = "保存中…";
+  btn.textContent = isDraft ? "暂存中…" : "发布中…";
   try {
     const res = await api(isNew ? "/posts" : `/posts/${encodeURIComponent(state.current.post.slug)}`, {
       method: isNew ? "POST" : "PUT",
@@ -400,6 +420,8 @@ async function savePost(isNew) {
     if (res.download) {
       triggerDownload(res.download, res.filename);
       toast(`DEV 模式：已生成下载（${res.filename}）`);
+    } else if (res.draftStaged) {
+      toast("已暂存到服务器（未推 GitHub）");
     } else {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
@@ -407,7 +429,7 @@ async function savePost(isNew) {
     toast(err.message, true);
   } finally {
     btn.disabled = false;
-    btn.textContent = "保存";
+    btn.textContent = isDraft ? "暂存" : "发布";
   }
 }
 
@@ -439,6 +461,18 @@ async function openMomentEditor(id) {
   qs("#me-draft").checked = fm.draft === true;
   state.tags.moment = Array.isArray(fm.tags) ? [...fm.tags] : [];
   drawTags("moment");
+
+  // 草稿勾选联动：发布按钮在“发布 / 暂存”间切换
+  const syncMomentSaveBtn = () => {
+    const btn = qs("#btn-save-moment");
+    if (!btn || btn.disabled) return;
+    btn.textContent = qs("#me-draft").checked ? "暂存" : "发布";
+    btn.classList.toggle("btn-staged", qs("#me-draft").checked);
+    const hint = qs("#me-draft").closest("label").querySelector("span");
+    if (hint) hint.textContent = qs("#me-draft").checked ? "草稿（仅存服务器，不推 GitHub）" : "草稿";
+  };
+  qs("#me-draft").addEventListener("change", syncMomentSaveBtn);
+  syncMomentSaveBtn();
 
   // 心情选择
   const moodRow = qs("#me-moods");
@@ -564,8 +598,9 @@ async function saveMoment(isNew) {
   };
   const body = qs("#me-md").value;
   const btn = qs("#btn-save-moment");
+  const isDraft = form.draft === true;
   btn.disabled = true;
-  btn.textContent = "发布中…";
+  btn.textContent = isDraft ? "暂存中…" : "发布中…";
   try {
     const res = await api(isNew ? "/moments" : `/moments/${encodeURIComponent(state.current.moment.id)}`, {
       method: isNew ? "POST" : "PUT",
@@ -574,6 +609,8 @@ async function saveMoment(isNew) {
     if (res.download) {
       triggerDownload(res.download, res.filename);
       toast(`DEV 模式：已生成下载（${res.filename}）`);
+    } else if (res.draftStaged) {
+      toast("已暂存到服务器（未推 GitHub）");
     } else {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
@@ -581,7 +618,7 @@ async function saveMoment(isNew) {
     toast(err.message, true);
   } finally {
     btn.disabled = false;
-    btn.textContent = "发布";
+    btn.textContent = isDraft ? "暂存" : "发布";
   }
 }
 
@@ -611,6 +648,9 @@ async function uploadOne(file, target) {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("target", target);
+    // 草稿状态：图片只存服务器暂存区
+    const draftChecked = target === "post" ? qs("#pe-draft")?.checked : qs("#me-draft")?.checked;
+    if (draftChecked) fd.append("draft", "1");
     if (target === "post") fd.append("slug", qs("#pe-slug").value.trim());
     else fd.append("momentDate", momentDateForUpload());
 

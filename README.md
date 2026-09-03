@@ -5,7 +5,8 @@ Shirone 博客内容仓的在线写作工具：浏览器表单化编写文章与
 ## 特性
 
 - **零构建**：纯 Node.js ESM，`node server.js` 直接运行，内存占用约 50MB
-- **无仓库克隆**：经 GitHub Contents API 直接写文件，服务器无状态
+- **本地镜像**：仓库内容缓存到服务器磁盘（一次性拉取分支 tarball），列表/详情读取零 GitHub 请求；右上角 GitHub 按钮手动触发同步（带进度与结果反馈），启动时自动预热；保存/删除后自动回写镜像
+- **草稿暂存**：勾选"草稿"后保存按钮变为"暂存"——内容只存服务器 `.drafts/` 目录，不推 GitHub；取消勾选再保存即自动发布（暂存图片一并搬运，`draft` 字段自动清除）
 - **字段 UI 化**：分类/标签/心情/九宫格图/开关全部点选，无需手写 frontmatter
 - **时间自动注入**：服务器按当前 UTC 时刻生成 `publishedAt`（naive UTC 串）与 `published`（站点时区日历日期），恒过主题构建期同日校验
 - **编辑保护**：合并式更新，`encrypted/password` 等未知字段原样保留，`published/publishedAt` 不被覆盖
@@ -103,6 +104,56 @@ server {
 | 文章图片 | `content/posts/<slug>/*` | `./filename` 相对引用 |
 | 动态 | `content/moments/YYYY-MM-DD[-后缀].md` | `published` 必含时分秒 |
 | 动态图片 | `public/images/albums/<YYYY-MM-DD>/*` | 根路径引用 |
+
+## 自动部署 hook（可选）
+
+本工具内置部署 webhook：主题仓 GitHub Actions 构建完成后，把 `dist` 以 orphan commit
+强推到主题仓 `deploy` 分支，随后 POST `/api/deploy/hook`（HMAC-SHA256 签名验证）；
+本工具在服务器上对 `/www/wwwroot/blog`（稀疏检出 dist 的克隆）执行
+`git fetch --depth 1` + `git reset --hard`，Actions 侧轮询 ticket 直至 `done`。
+
+### 服务器一次性初始化
+
+```bash
+# 稀疏克隆：只检出 deploy 分支的 dist/
+git clone --filter=blob:none --no-checkout --single-branch \
+     --branch deploy https://github.com/Nyaecho/Shirone.git /www/wwwroot/blog
+cd /www/wwwroot/blog && git sparse-checkout set dist
+# 私有仓需配置拉取凭据（credential store 或 remote 内嵌只读 token）
+```
+
+nginx 站点 root 指向 `/www/wwwroot/blog/dist`。
+
+### 配置（.env）
+
+```ini
+# 与主题仓 Secret DEPLOY_HOOK_SECRET 一致的随机串
+DEPLOY_SECRET=<openssl rand -hex 32>
+# 服务器上 blog 仓库路径
+DEPLOY_DIR=/www/wwwroot/blog
+# 构建产物分支
+DEPLOY_BRANCH=deploy
+```
+
+### 主题仓 Secrets（GitHub Actions）
+
+| Secret | 值 |
+| --- | --- |
+| `CONTENT_REPO_TOKEN` | 对 `Nyaecho/blog-content` 只读的 PAT |
+| `DEPLOY_TOKEN` | 对 `Nyaecho/Shirone` Contents 可写的 PAT（推 deploy 分支） |
+| `DEPLOY_HOOK_URL` | `https://admin.<域名>/api/deploy/hook` |
+| `DEPLOY_HOOK_SECRET` | 与服务器 `DEPLOY_SECRET` 相同 |
+
+### 回滚
+
+服务器上直接操作：
+
+```bash
+cd /www/wwwroot/blog
+git fetch origin deploy --depth=50   # 拉取更早历史
+git log --oneline                    # 找到目标版本
+git reset --hard <commit>
+```
 
 ## 时间注入规则
 

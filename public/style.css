@@ -200,6 +200,29 @@ body {
 }
 .tag-chip button { border: none; background: none; cursor: pointer; color: inherit; padding: 0 0 0 2px; font-size: 13px; }
 
+/* 已有标签候选区：点击快速复用 */
+.tag-suggest {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: -6px 0 12px; padding: 8px 10px;
+  border: 1px dashed var(--outline); border-radius: 8px;
+  background: var(--surface-3);
+}
+.tag-suggest-label { font-size: 11.5px; color: var(--on-surface-variant); font-weight: 600; margin-right: 2px; }
+.tag-suggest-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+  border: 1px solid var(--outline); border-radius: 999px;
+  background: var(--surface); color: var(--on-surface);
+  font-size: 12px; font-family: inherit; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.tag-suggest-chip:hover { border-color: var(--primary); background: var(--primary-container); color: var(--on-primary-container); }
+.tag-suggest-count {
+  font-size: 10px; color: var(--on-surface-variant);
+  background: var(--surface-3); border-radius: 999px; padding: 0 5px;
+}
+.tag-suggest-chip:hover .tag-suggest-count { background: var(--surface); }
+.tag-suggest-more { font-size: 11px; color: var(--on-surface-variant); }
+
 .switch-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .switch input { width: 16px; height: 16px; accent-color: var(--primary); }

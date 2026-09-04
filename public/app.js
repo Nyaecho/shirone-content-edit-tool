@@ -16,6 +16,7 @@ const state = {
   current: { post: null, moment: null },
   editors: {},
   momentImages: [],
+  taxonomies: null, // { tags: [{name,posts,moments,total}], categories: [{name,count}] }，null = 未加载
 };
 
 // ---------- API ----------
@@ -63,6 +64,7 @@ function renderLogin() {
     try {
       const data = await api("/login", { method: "POST", body: { password: form.password.value } });
       state.devMode = data.devMode;
+      loadTaxonomies(); // 异步预取已有标签/分类（编辑器打开时直接可用）
       renderShell();
     } catch (err) {
       errEl.textContent = err.message;
@@ -189,9 +191,10 @@ function switchView(view) {
   else if (view === "moments") renderMomentsList();
 }
 
-/** 同步完成后刷新当前视图（顺带重查远端状态） */
+/** 同步完成后刷新当前视图（顺带重查远端状态与标签/分类候选池） */
 function refreshCurrentView() {
   if (typeof state.checkRemoteAhead === "function") state.checkRemoteAhead();
+  loadTaxonomies(); // 镜像已更新，重新聚合标签/分类
   return switchView(state.view);
 }
 
@@ -417,6 +420,8 @@ async function openPostEditor(slug) {
   qs("#pe-refresh-updated").closest("label").hidden = isNew;
   state.tags.post = Array.isArray(fm.tags) ? [...fm.tags] : [];
   drawTags("post");
+  drawTagSuggestions("post");
+  fillCategoryOptions();
 
   // 草稿勾选联动：保存按钮在“发布 / 暂存”间切换（草稿同步推仓，仅站点隐藏）
   const syncPostSaveBtn = () => {
@@ -594,6 +599,7 @@ async function savePost(isNew) {
     } else {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
+    loadTaxonomies(); // 新写入的标签/分类即时进入候选池
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -630,6 +636,7 @@ async function openMomentEditor(id) {
   qs("#me-draft").checked = fm.draft === true;
   state.tags.moment = Array.isArray(fm.tags) ? [...fm.tags] : [];
   drawTags("moment");
+  drawTagSuggestions("moment");
 
   // 草稿勾选联动：发布按钮在“发布 / 暂存”间切换（草稿同步推仓，仅站点隐藏）
   const syncMomentSaveBtn = () => {
@@ -781,6 +788,7 @@ async function saveMoment(isNew) {
     } else {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
+    loadTaxonomies(); // 新写入的标签/分类即时进入候选池
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -890,6 +898,105 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ---------- 标签（手动输入 + 已有标签快速复用） ----------
+
+/** 拉取仓库聚合的标签/分类（失败静默：候选区不显示即可，不影响手动输入） */
+async function loadTaxonomies() {
+  try {
+    state.taxonomies = await api("/taxonomies");
+  } catch {
+    state.taxonomies = null;
+  }
+}
+
+/** 填充文章分类 datalist（HTML 中预留了 #category-options，此前从未填充） */
+function fillCategoryOptions() {
+  const datalist = qs("#category-options");
+  if (!datalist) return;
+  datalist.innerHTML = "";
+  for (const c of state.taxonomies?.categories || []) {
+    const opt = document.createElement("option");
+    opt.value = c.name;
+    datalist.appendChild(opt);
+  }
+}
+
+/**
+ * 绘制“已有标签”候选区：点击即添加；输入实时过滤。
+ * kind: "post" | "moment"；post 过滤出文章标签（moments>0 也展示但排后），moment 同理。
+ */
+function drawTagSuggestions(kind) {
+  const box = qs(kind === "post" ? "#pe-tag-suggest" : "#me-tag-suggest");
+  if (!box) return;
+  const input = qs(kind === "post" ? "#pe-tags" : "#me-tags");
+  const all = state.taxonomies?.tags || [];
+  if (!all.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+
+  // 当前内容类型优先展示该类型用过的标签，另一类型的排后
+  const scoped = [...all].sort((a, b) => {
+    const av = kind === "post" ? a.posts : a.moments;
+    const bv = kind === "post" ? b.posts : b.moments;
+    return (bv > 0) - (av > 0);
+  });
+
+  const render = () => {
+    const q = input.value.trim().replace(/^#/, "").toLowerCase();
+    const selected = state.tags[kind].map((t) => t.toLowerCase());
+    const items = scoped.filter((t) => !selected.includes(t.name.toLowerCase())).filter((t) => !q || t.name.toLowerCase().includes(q));
+    if (!items.length) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = "";
+    const label = document.createElement("span");
+    label.className = "tag-suggest-label";
+    label.textContent = "已有标签";
+    box.appendChild(label);
+    const max = 30; // 最多展示 30 个，避免刷屏
+    for (const t of items.slice(0, max)) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "tag-suggest-chip";
+      chip.title = `文章 ${t.posts} 篇 · 动态 ${t.moments} 条`;
+      chip.innerHTML = `#${esc(t.name)}<span class="tag-suggest-count">${t.total}</span>`;
+      chip.addEventListener("click", () => {
+        addTag(kind, t.name);
+        input.value = "";
+        render();
+      });
+      box.appendChild(chip);
+    }
+    if (items.length > max) {
+      const more = document.createElement("span");
+      more.className = "tag-suggest-more";
+      more.textContent = `还有 ${items.length - max} 个，输入关键词过滤`;
+      box.appendChild(more);
+    }
+  };
+
+  render();
+  input.oninput = () => render();
+}
+
+/** 添加标签：大小写不敏感去重（复用已有写法），成功返回 true */
+function addTag(kind, name) {
+  const val = String(name).trim().replace(/^#/, "");
+  if (!val) return false;
+  const exists = state.tags[kind].some((t) => t.toLowerCase() === val.toLowerCase());
+  if (exists) return false;
+  // 复用已有标签时保留仓库中的原始写法（如 React 而非 react）
+  const known = (state.taxonomies?.tags || []).find((t) => t.name.toLowerCase() === val.toLowerCase());
+  state.tags[kind].push(known ? known.name : val);
+  drawTags(kind);
+  return true;
+}
+
 function drawTags(kind) {
   const box = qs(kind === "post" ? "#pe-tag-box" : "#me-tag-box");
   const input = qs(kind === "post" ? "#pe-tags" : "#me-tags");
@@ -901,18 +1008,16 @@ function drawTags(kind) {
     chip.querySelector("button").addEventListener("click", () => {
       state.tags[kind] = state.tags[kind].filter((t) => t !== tag);
       drawTags(kind);
+      drawTagSuggestions(kind); // 移除后该标签重新回到候选区
     });
     box.appendChild(chip);
   }
   input.onkeydown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const val = input.value.trim().replace(/^#/, "");
-      if (val && !state.tags[kind].includes(val)) {
-        state.tags[kind].push(val);
-        drawTags(kind);
-      }
+      addTag(kind, input.value);
       input.value = "";
+      drawTagSuggestions(kind); // 已选集合变化，重新过滤候选区
     }
   };
 }

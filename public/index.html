@@ -101,8 +101,9 @@
           </div>
           <label class="field"><span class="field-label">标签</span>
             <input type="text" id="pe-tags" placeholder="回车添加，如：博客、指南" />
-            <span class="field-hint">输入后按回车添加</span></label>
+            <span class="field-hint">输入后按回车添加，或点击下方已有标签快速复用</span></label>
           <div class="tag-box" id="pe-tag-box"></div>
+          <div class="tag-suggest" id="pe-tag-suggest" hidden></div>
           <label class="field"><span class="field-label">摘要</span>
             <textarea id="pe-description" rows="3" placeholder="留空则自动截取正文前段"></textarea></label>
           <div class="switch-row">
@@ -147,9 +148,11 @@
             </div>
             <span class="field-hint" id="locate-hint">点击定位自动填入；GPS 需授权，拒绝时自动改用 IP 定位</span></label>
           <label class="field"><span class="field-label">标签</span>
-            <input type="text" id="me-tags" placeholder="回车添加" /></label>
+            <input type="text" id="me-tags" placeholder="回车添加" />
+            <span class="field-hint">回车添加，或点击下方已有标签快速复用</span></label>
         </div>
         <div class="tag-box" id="me-tag-box"></div>
+        <div class="tag-suggest" id="me-tag-suggest" hidden></div>
         <div class="field-row">
           <label class="switch"><input type="checkbox" id="me-pinned" /><span>置顶</span></label>
           <label class="switch"><input type="checkbox" id="me-draft" /><span>草稿</span></label>

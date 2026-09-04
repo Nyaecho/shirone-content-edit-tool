@@ -15,6 +15,7 @@ import {
 import { config, isDev } from "../lib/config.js";
 import * as postsService from "../services/posts.js";
 import * as momentsService from "../services/moments.js";
+import * as taxonomyService from "../services/taxonomy.js";
 import { momentAssetPath, postAssetPath } from "../lib/content.js";
 import { getImage } from "../lib/image-staging.js";
 import { deployEnabled, verifySignature, acceptDeploy, getTicketState, manualDeploy } from "../lib/deploy.js";
@@ -161,6 +162,16 @@ router.get("/sync/status", (req, res) => {
     const state = syncEngine.syncState();
     const meta = mirrorStore.isReady() ? mirrorStore.lastMeta() : null;
     res.json({ ok: true, data: { ...state, mirrorReady: mirrorStore.isReady(), meta } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ---------- 分类法（已有标签 / 分类聚合，编辑器快速复用） ----------
+
+router.get("/taxonomies", async (req, res) => {
+  try {
+    res.json({ ok: true, data: await taxonomyService.listTaxonomies() });
   } catch (err) {
     handleError(res, err);
   }

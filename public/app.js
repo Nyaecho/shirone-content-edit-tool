@@ -30,7 +30,11 @@ async function api(path, options = {}) {
   if (contentType.includes("text/markdown") || contentType.includes("application/zip")) {
     return { download: res, filename: res.headers.get("X-Suggested-Filename") || "download.md" };
   }
-  const json = await res.json().catch(() => ({ ok: false, error: "响应解析失败" }));
+  // 非 JSON 响应（如反代/WAF 拦截页、路由 404 的 HTML）直接报状态码，避免误导性的"响应解析失败"
+  if (!contentType.includes("application/json")) {
+    throw new Error(`请求失败（${res.status}，非 JSON 响应——检查路径或反向代理）`);
+  }
+  const json = await res.json().catch(() => ({ ok: false, error: `响应解析失败（${res.status}）` }));
   if (!res.ok || json.ok === false) {
     throw new Error(json.error || `请求失败（${res.status}）`);
   }
@@ -746,8 +750,10 @@ function setupEditorPaste(mde, target) {
 
 async function deleteContent(kind, id) {
   if (!confirm(`确定删除？此操作${state.devMode ? "在 DEV 模式下无副作用" : "会提交删除到 GitHub 仓库"}`)) return;
+  // 资源路径用复数（与后端路由 /posts /moments 一致）；kind 仅用于视图刷新与元素选择
+  const resource = kind === "post" ? "posts" : "moments";
   try {
-    const res = await api(`/${kind}/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const res = await api(`/${resource}/${encodeURIComponent(id)}`, { method: "DELETE" });
     toast(res.message || "已删除");
     if (kind === "post") renderPostsList();
     else renderMomentsList();

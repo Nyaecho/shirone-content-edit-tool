@@ -116,6 +116,8 @@ body {
   display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px;
   font-size: 11.5px; background: var(--surface-3); color: var(--on-surface-variant);
 }
+/* hidden 属性优先于任何 display 声明（否则 DEV 徽标在生产模式也会显示） */
+[hidden] { display: none !important; }
 .badge-draft { background: var(--tertiary-container); color: var(--on-surface); }
 .badge-staged { background: #fff3cd; color: #664d03; font-weight: 600; }
 @media (prefers-color-scheme: dark) { .badge-staged { background: #4d3d00; color: #ffe08a; } }

@@ -161,45 +161,74 @@ async function watchSyncProgress(syncBtn) {
   const deadline = Date.now() + 45 * 60 * 1000;
   let lastBytes = 0;
   let lastBytesAt = Date.now();
-  for (;;) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const s = await api("/sync/status");
-    if (s.status === "running") {
-      const mb = (s.bytes / 1048576).toFixed(1);
-      if (s.files) {
-        syncBtn.textContent = `解压中 ${s.files} 文件`;
-      } else if (s.totalBytes) {
-        // 有总大小：显示百分比 + 速率与剩余时间
-        const pct = Math.min(100, Math.round((s.bytes / s.totalBytes) * 100));
-        if (s.bytes > lastBytes) {
-          if (lastBytes > 0) {
-            const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
-            const remain = rate > 0 ? (s.totalBytes - s.bytes) / rate : null;
-            syncBtn.textContent = remain != null
-              ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
-              : `↓${mb}MB ${pct}%`;
-          } else {
-            syncBtn.textContent = `↓${mb}MB ${pct}%`;
+  const barWrap = document.getElementById("sync-progress");
+  const bar = document.getElementById("sync-progress-bar");
+  if (barWrap) {
+    barWrap.hidden = false;
+    bar.classList.remove("indeterminate");
+    bar.style.width = "0%";
+  }
+  const hideBar = () => { if (barWrap) barWrap.hidden = true; };
+  try {
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const s = await api("/sync/status");
+      if (s.status === "running") {
+        const mb = (s.bytes / 1048576).toFixed(1);
+        if (s.files) {
+          syncBtn.textContent = `解压中 ${s.files} 文件`;
+          // 解压阶段无总大小可算：条纹动画表示进行中
+          if (bar && !bar.classList.contains("indeterminate")) {
+            bar.classList.add("indeterminate");
+            bar.style.width = "100%";
           }
-          lastBytes = s.bytes;
-          lastBytesAt = Date.now();
+        } else if (s.totalBytes) {
+          // 有总大小：显示百分比 + 速率与剩余时间
+          const pct = Math.min(100, Math.round((s.bytes / s.totalBytes) * 100));
+          if (bar) {
+            bar.classList.remove("indeterminate");
+            bar.style.width = `${pct}%`;
+          }
+          if (s.bytes > lastBytes) {
+            if (lastBytes > 0) {
+              const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
+              const remain = rate > 0 ? (s.totalBytes - s.bytes) / rate : null;
+              syncBtn.textContent = remain != null
+                ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
+                : `↓${mb}MB ${pct}%`;
+            } else {
+              syncBtn.textContent = `↓${mb}MB ${pct}%`;
+            }
+            lastBytes = s.bytes;
+            lastBytesAt = Date.now();
+          }
+        } else {
+          syncBtn.textContent = `↓${mb}MB`;
+          if (bar) bar.classList.add("indeterminate");
         }
+        if (Date.now() > deadline) {
+          toast("同步耗时过长已停止等待；后台可能仍在进行，稍后刷新页面查看结果", true);
+          break;
+        }
+        continue;
+      }
+      if (s.status === "ok") {
+        if (bar) {
+          bar.classList.remove("indeterminate");
+          bar.style.width = "100%";
+        }
+        setTimeout(hideBar, 600); // 满格短暂停留后收起
+        toast(`同步完成：${s.files} 文件（${(s.meta?.syncedAt || "").slice(0, 19).replace("T", " ")}）`);
+        await refreshCurrentView();
       } else {
-        syncBtn.textContent = `↓${mb}MB`;
+        hideBar();
+        toast(`同步失败：${s.error || "未知错误"}`, true);
       }
-      if (Date.now() > deadline) {
-        toast("同步耗时过长已停止等待；后台可能仍在进行，稍后刷新页面查看结果", true);
-        break;
-      }
-      continue;
+      break;
     }
-    if (s.status === "ok") {
-      toast(`同步完成：${s.files} 文件（${(s.meta?.syncedAt || "").slice(0, 19).replace("T", " ")}）`);
-      await refreshCurrentView();
-    } else {
-      toast(`同步失败：${s.error || "未知错误"}`, true);
-    }
-    break;
+  } catch (err) {
+    hideBar();
+    throw err;
   }
 }
 

@@ -135,6 +135,39 @@ body {
   50% { box-shadow: 0 0 0 5px rgba(13, 110, 253, 0); }
 }
 @media (prefers-color-scheme: dark) { .btn-remote-ahead { color: #6ea8fe; border-color: #6ea8fe; } }
+
+/* 同步进度条：页面顶端固定细条 */
+.sync-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 9999;
+  background: rgba(13, 110, 253, 0.15);
+  overflow: hidden;
+}
+.sync-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0d6efd, #6ea8fe);
+  transition: width 0.5s ease;
+}
+/* 解压阶段（无总大小可算）：不确定进度条纹动画 */
+.sync-progress-bar.indeterminate {
+  width: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    #0d6efd 0 24px,
+    #6ea8fe 24px 48px
+  );
+  background-size: 48px 100%;
+  animation: sync-slide 0.8s linear infinite;
+}
+@keyframes sync-slide {
+  from { background-position: 0 0; }
+  to { background-position: 48px 0; }
+}
 .badge-pinned { background: var(--primary-container); color: var(--on-primary-container); }
 .badge-dev { background: var(--tertiary-container); color: var(--on-surface); font-weight: 600; }
 

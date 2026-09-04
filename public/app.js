@@ -81,7 +81,7 @@ function renderShell() {
   if (state.devMode) document.getElementById("dev-badge").hidden = false;
   else document.getElementById("btn-sync").hidden = false; // 仅生产模式显示同步按钮
 
-  // 同步：触发 → 轮询进度 → 刷新列表
+  // 同步：触发 → 轮询进度 → 刷新列表；页面加载时若已有同步在跑则自动接上进度
   const syncBtn = document.getElementById("btn-sync");
   if (syncBtn && !syncBtn.hidden) {
     syncBtn.addEventListener("click", async () => {
@@ -90,51 +90,7 @@ function renderShell() {
       syncBtn.textContent = "同步中…";
       try {
         await api("/sync", { method: "POST" });
-        // 轮询直至结束（硬上限 45 分钟：国内服务器到 codeload 可能极慢，50MB 需 40+ 分钟）
-        const deadline = Date.now() + 45 * 60 * 1000;
-        const t0 = Date.now();
-        let lastBytes = 0;
-        let lastBytesAt = t0;
-        for (;;) {
-          await new Promise((r) => setTimeout(r, 2000));
-          const s = await api("/sync/status");
-          if (s.status === "running") {
-            const mb = (s.bytes / 1048576).toFixed(1);
-            if (s.files) {
-              syncBtn.textContent = `解压中 ${s.files} 文件`;
-            } else if (s.totalBytes) {
-              // 有总大小：显示百分比 + 速率与剩余时间
-              const pct = Math.min(100, Math.round((s.bytes / s.totalBytes) * 100));
-              if (s.bytes > lastBytes) {
-                if (lastBytes > 0) {
-                  const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
-                  const remain = rate > 0 ? (s.totalBytes - s.bytes) / rate : null;
-                  syncBtn.textContent = remain != null
-                    ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
-                    : `↓${mb}MB ${pct}%`;
-                } else {
-                  syncBtn.textContent = `↓${mb}MB ${pct}%`;
-                }
-                lastBytes = s.bytes;
-                lastBytesAt = Date.now();
-              }
-            } else {
-              syncBtn.textContent = `↓${mb}MB`;
-            }
-            if (Date.now() > deadline) {
-              toast("同步耗时过长已停止等待；后台可能仍在进行，稍后刷新页面查看结果", true);
-              break;
-            }
-            continue;
-          }
-          if (s.status === "ok") {
-            toast(`同步完成：${s.files} 文件（${(s.meta?.syncedAt || "").slice(0, 19).replace("T", " ")}）`);
-            await refreshCurrentView();
-          } else {
-            toast(`同步失败：${s.error || "未知错误"}`, true);
-          }
-          break;
-        }
+        await watchSyncProgress(syncBtn);
       } catch (err) {
         toast(err.message, true);
       } finally {
@@ -142,6 +98,21 @@ function renderShell() {
         syncBtn.textContent = "⟳ 同步";
       }
     });
+    // 刷新页面后恢复：后台同步不随页面关闭而中止（single-flight 跑在服务器进程里）
+    (async () => {
+      try {
+        const s = await api("/sync/status");
+        if (s.status === "running") {
+          syncBtn.disabled = true;
+          syncBtn.textContent = "同步中…";
+          await watchSyncProgress(syncBtn);
+          syncBtn.disabled = false;
+          syncBtn.textContent = "⟳ 同步";
+        }
+      } catch {
+        /* 状态查询失败不打扰用户 */
+      }
+    })();
   }
 
   document.getElementById("btn-logout").addEventListener("click", async () => {
@@ -166,6 +137,54 @@ function switchView(view) {
 /** 同步完成后刷新当前视图 */
 function refreshCurrentView() {
   return switchView(state.view);
+}
+
+/** 轮询同步进度直至结束（按钮触发与页面刷新恢复共用） */
+async function watchSyncProgress(syncBtn) {
+  // 硬上限 45 分钟：国内服务器到 codeload 可能极慢，50MB 需 40+ 分钟
+  const deadline = Date.now() + 45 * 60 * 1000;
+  let lastBytes = 0;
+  let lastBytesAt = Date.now();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const s = await api("/sync/status");
+    if (s.status === "running") {
+      const mb = (s.bytes / 1048576).toFixed(1);
+      if (s.files) {
+        syncBtn.textContent = `解压中 ${s.files} 文件`;
+      } else if (s.totalBytes) {
+        // 有总大小：显示百分比 + 速率与剩余时间
+        const pct = Math.min(100, Math.round((s.bytes / s.totalBytes) * 100));
+        if (s.bytes > lastBytes) {
+          if (lastBytes > 0) {
+            const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
+            const remain = rate > 0 ? (s.totalBytes - s.bytes) / rate : null;
+            syncBtn.textContent = remain != null
+              ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
+              : `↓${mb}MB ${pct}%`;
+          } else {
+            syncBtn.textContent = `↓${mb}MB ${pct}%`;
+          }
+          lastBytes = s.bytes;
+          lastBytesAt = Date.now();
+        }
+      } else {
+        syncBtn.textContent = `↓${mb}MB`;
+      }
+      if (Date.now() > deadline) {
+        toast("同步耗时过长已停止等待；后台可能仍在进行，稍后刷新页面查看结果", true);
+        break;
+      }
+      continue;
+    }
+    if (s.status === "ok") {
+      toast(`同步完成：${s.files} 文件（${(s.meta?.syncedAt || "").slice(0, 19).replace("T", " ")}）`);
+      await refreshCurrentView();
+    } else {
+      toast(`同步失败：${s.error || "未知错误"}`, true);
+    }
+    break;
+  }
 }
 
 // ---------- 文章列表 ----------

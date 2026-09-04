@@ -45,9 +45,17 @@ if (errors.length) {
 // 生产模式：启动时异步预热镜像（不阻塞监听；失败不影响服务，读操作回退 GitHub API）
 if (!isDev()) {
   const { startSync } = await import("./lib/sync.js");
-  startSync().then((s) => {
+  startSync().then(async (s) => {
     if (s.status === "ok") console.log(`[sync] 镜像预热完成：${s.files} 文件 @ ${s.sha?.slice(0, 7) || "?"}`);
     else console.warn(`[sync] 镜像预热失败：${s.error}（读操作回退 GitHub API，可稍后手动同步）`);
+
+    // 旧暂存草稿迁移（一次性；.drafts/ 不存在时为空操作）
+    const { migrateLegacyDrafts, hasLegacyDrafts } = await import("./lib/draft-store.js");
+    if (hasLegacyDrafts()) {
+      const r = await migrateLegacyDrafts();
+      console.log(`[drafts] 旧暂存草稿迁移：${r.migrated} 已推送，${r.skipped} 跳过，${r.errors.length} 失败`);
+      for (const e of r.errors) console.warn(`[drafts] 迁移失败：${e}`);
+    }
   });
 }
 

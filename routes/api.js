@@ -127,20 +127,6 @@ router.get("/sync/status", (req, res) => {
   }
 });
 
-// ---------- 草稿图片代理（暂存区图片经此读取，供编辑器预览） ----------
-router.get("/drafts/asset", (req, res) => {
-  const p = String(req.query.path || "");
-  if (!p || p.includes("..")) return res.status(400).json({ ok: false, error: "非法路径" });
-  (async () => {
-    const data = await draftStore.getDraftImage(p);
-    if (!data) return res.status(404).json({ ok: false, error: "草稿图片不存在" });
-    const type = data.contentType || "application/octet-stream";
-    res.setHeader("Content-Type", type);
-    res.setHeader("Cache-Control", "private, max-age=300");
-    res.send(data.buffer);
-  })().catch((err) => handleError(res, err));
-});
-
 // ---------- 文章 ----------
 
 router.get("/posts", async (req, res) => {
@@ -291,7 +277,7 @@ router.delete("/moments/:id", async (req, res) => {
  * - target: "post" | "moment"
  * - slug: 文章 slug（target=post 时必填）
  * - momentDate: 动态日期 YYYY-MM-DD（target=moment 时必填，回填时用已有 published 的前 10 位）
- * - draft: "1" 时表示当前内容处于草稿状态——图片只落服务器暂存区，不推 GitHub
+ * 草稿与发布同一存储：图片始终直接推仓库（草稿只是 md 的 draft 标记）
  */
 router.post("/upload", (req, res) => {
   upload.single("file")(req, res, async (err) => {
@@ -299,7 +285,7 @@ router.post("/upload", (req, res) => {
       return res.status(400).json({ ok: false, error: err.message || "上传失败" });
     }
     try {
-      const { target, slug, momentDate, draft } = req.body || {};
+      const { target, slug, momentDate } = req.body || {};
       if (!req.file) return res.status(400).json({ ok: false, error: "缺少文件" });
       if (!["post", "moment"].includes(target)) {
         return res.status(400).json({ ok: false, error: "target 必须为 post 或 moment" });
@@ -317,20 +303,7 @@ router.post("/upload", (req, res) => {
         repoPath = momentAssetPath(momentDate, filename);
       }
 
-      // 草稿状态：图片只存服务器暂存区（发布时自动搬运到仓库）
-      if (draft === "1") {
-        const stagedImage = await draftStore.putDraftImage(target, repoPath, req.file.buffer, req.file.mimetype);
-        const markdownRef =
-          target === "post"
-            ? `![${filename}](./${filename})`
-            : `![${filename}](${stagedImage.webPath})`;
-        return res.json({
-          ok: true,
-          data: { repoPath, webPath: stagedImage.webPath, markdownRef, filename, draftStaged: true },
-        });
-      }
-
-      // 生产模式直接推送到仓库；DEV 模式暂存内存
+      // 生产模式直接推送到仓库；DEV 模式暂存内存（下载打包时带上）
       if (!isDev()) {
         const { putFile } = await import("../lib/github.js");
         await putFile(repoPath, req.file.buffer, `chore(asset): 上传图片 ${filename}`);
@@ -354,20 +327,6 @@ router.post("/upload", (req, res) => {
 // ---------- 保存响应（DEV 下载 / 生产提交链接） ----------
 
 async function respondWithSave(res, result, { kind, slug, id, message }) {
-  // 草稿暂存：存服务器、不推 GitHub
-  if (result.draftStaged) {
-    return res.json({
-      ok: true,
-      data: {
-        message: "已暂存到服务器（未推 GitHub，取消勾选草稿并保存即发布）",
-        path: result.path,
-        kind,
-        slug,
-        id,
-        draftStaged: true,
-      },
-    });
-  }
   if (result.devDownload) {
     // DEV：把文件 + 本会话引用的暂存图片打包下载
     const referenced = await collectReferencedImages(result.raw);

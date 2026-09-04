@@ -206,11 +206,10 @@ async function watchSyncProgress(syncBtn) {
   let lastBytesAt = Date.now();
   const barWrap = document.getElementById("sync-progress");
   const bar = document.getElementById("sync-progress-bar");
-  if (barWrap) {
-    barWrap.hidden = false;
-    bar.classList.remove("indeterminate");
-    bar.style.width = "0%";
-  }
+  const setBar = (pct) => { if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`; };
+  const setIndeterminate = () => { if (bar) { bar.classList.add("indeterminate"); bar.style.width = "100%"; } };
+  const setDeterminate = (pct) => { if (bar) { bar.classList.remove("indeterminate"); setBar(pct); } };
+  if (barWrap) barWrap.hidden = false;
   const hideBar = () => { if (barWrap) barWrap.hidden = true; };
   try {
     for (;;) {
@@ -218,36 +217,36 @@ async function watchSyncProgress(syncBtn) {
       const s = await api("/sync/status");
       if (s.status === "running") {
         const mb = (s.bytes / 1048576).toFixed(1);
-        if (s.files) {
+        if (s.phase === "extracting" || (s.files && !s.totalBytes && !s.estBytes)) {
+          // 解压阶段（无总大小可算）：条纹动画表示进行中
           syncBtn.textContent = `解压中 ${s.files} 文件`;
-          // 解压阶段无总大小可算：条纹动画表示进行中
-          if (bar && !bar.classList.contains("indeterminate")) {
-            bar.classList.add("indeterminate");
-            bar.style.width = "100%";
-          }
-        } else if (s.totalBytes) {
-          // 有总大小：显示百分比 + 速率与剩余时间
-          const pct = Math.min(100, Math.round((s.bytes / s.totalBytes) * 100));
-          if (bar) {
-            bar.classList.remove("indeterminate");
-            bar.style.width = `${pct}%`;
-          }
-          if (s.bytes > lastBytes) {
-            if (lastBytes > 0) {
-              const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
-              const remain = rate > 0 ? (s.totalBytes - s.bytes) / rate : null;
-              syncBtn.textContent = remain != null
-                ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
-                : `↓${mb}MB ${pct}%`;
-            } else {
-              syncBtn.textContent = `↓${mb}MB ${pct}%`;
-            }
-            lastBytes = s.bytes;
-            lastBytesAt = Date.now();
-          }
+          setIndeterminate();
+        } else if (s.phase === "connecting") {
+          syncBtn.textContent = "连接 GitHub…";
+          setIndeterminate();
         } else {
-          syncBtn.textContent = `↓${mb}MB`;
-          if (bar) bar.classList.add("indeterminate");
+          // 下载阶段：优先真实 Content-Length，缺失时用上次 tarball 大小估算
+          const total = s.totalBytes || s.estBytes;
+          if (total) {
+            const pct = Math.min(100, Math.round((s.bytes / total) * 100));
+            setDeterminate(pct);
+            if (s.bytes > lastBytes) {
+              if (lastBytes > 0) {
+                const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
+                const remain = rate > 0 ? (total - s.bytes) / rate : null;
+                syncBtn.textContent = remain != null
+                  ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
+                  : `↓${mb}MB ${pct}%`;
+              } else {
+                syncBtn.textContent = `↓${mb}MB ${pct}%`;
+              }
+              lastBytes = s.bytes;
+              lastBytesAt = Date.now();
+            }
+          } else {
+            syncBtn.textContent = `↓${mb}MB`;
+            setIndeterminate();
+          }
         }
         if (Date.now() > deadline) {
           toast("同步耗时过长已停止等待；后台可能仍在进行，稍后刷新页面查看结果", true);
@@ -256,10 +255,7 @@ async function watchSyncProgress(syncBtn) {
         continue;
       }
       if (s.status === "ok") {
-        if (bar) {
-          bar.classList.remove("indeterminate");
-          bar.style.width = "100%";
-        }
+        setDeterminate(100);
         setTimeout(hideBar, 600); // 满格短暂停留后收起
         toast(`同步完成：${s.files} 文件（${(s.meta?.syncedAt || "").slice(0, 19).replace("T", " ")}）`);
         await refreshCurrentView();

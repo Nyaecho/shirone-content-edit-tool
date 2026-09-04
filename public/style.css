@@ -153,9 +153,10 @@ body {
   background: linear-gradient(90deg, #0d6efd, #6ea8fe);
   transition: width 0.5s ease;
 }
-/* 解压阶段（无总大小可算）：不确定进度条纹动画 */
+/* 解压阶段（无总大小可算）：不确定进度条纹动画
+   width 用 !important：JS 在切换模式时可能残留内联 width，类选择器需压过它 */
 .sync-progress-bar.indeterminate {
-  width: 100%;
+  width: 100% !important;
   background: repeating-linear-gradient(
     90deg,
     #0d6efd 0 24px,

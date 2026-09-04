@@ -17,7 +17,7 @@ import * as postsService from "../services/posts.js";
 import * as momentsService from "../services/moments.js";
 import { momentAssetPath, postAssetPath } from "../lib/content.js";
 import { getImage } from "../lib/image-staging.js";
-import { deployEnabled, verifySignature, acceptDeploy, getTicketState } from "../lib/deploy.js";
+import { deployEnabled, verifySignature, acceptDeploy, getTicketState, manualDeploy } from "../lib/deploy.js";
 import JSZip from "jszip";
 import crypto from "node:crypto";
 
@@ -104,6 +104,34 @@ router.get("/remote-status", async (req, res) => {
   try {
     const { remoteAhead } = await import("../lib/store.js");
     res.json({ ok: true, data: { remoteAhead: await remoteAhead() } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ---------- 手动部署重试（Cookie 认证；弥补 Actions 链路偶发的 git 超时失败） ----------
+
+router.post("/deploy/retry", (req, res) => {
+  try {
+    if (!deployEnabled()) {
+      return res.status(503).json({ ok: false, error: "部署功能未配置（缺少 DEPLOY_SECRET）" });
+    }
+    const result = manualDeploy();
+    if (result.error) return res.status(409).json({ ok: false, error: result.error });
+    res.json({ ok: true, data: { ticket: result.ticket, state: "running" } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get("/deploy/retry/status", (req, res) => {
+  try {
+    const rec = getTicketState(String(req.query.ticket || ""));
+    if (!rec) return res.status(404).json({ ok: false, error: "ticket 不存在或已过期" });
+    res.json({
+      ok: true,
+      data: { state: rec.state, error: rec.error || null, sha: rec.sha, head: rec.head || null },
+    });
   } catch (err) {
     handleError(res, err);
   }

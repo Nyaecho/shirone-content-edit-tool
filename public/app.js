@@ -79,7 +79,47 @@ function renderShell() {
   $app.appendChild(shell);
 
   if (state.devMode) document.getElementById("dev-badge").hidden = false;
-  else document.getElementById("btn-sync").hidden = false; // 仅生产模式显示同步按钮
+  else {
+    document.getElementById("btn-sync").hidden = false; // 仅生产模式显示同步按钮
+    document.getElementById("btn-deploy").hidden = false; // 拉取站点按钮（部署功能未配置时后端返回 503）
+  }
+
+  // 拉取站点：手动重试部署（Actions 链路偶发 git 超时失败的补救）
+  const deployBtn = document.getElementById("btn-deploy");
+  if (deployBtn && !deployBtn.hidden) {
+    deployBtn.addEventListener("click", async () => {
+      if (deployBtn.disabled) return;
+      deployBtn.disabled = true;
+      deployBtn.textContent = "拉取中…";
+      try {
+        const r = await api("/deploy/retry", { method: "POST" });
+        // 轮询直至结束（最长 6 分钟：慢网下 git 操作 300s 超时上限）
+        const deadline = Date.now() + 6 * 60 * 1000;
+        for (;;) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const s = await api(`/deploy/retry/status?ticket=${encodeURIComponent(r.ticket)}`);
+          if (s.state === "running") {
+            if (Date.now() > deadline) {
+              toast("拉取耗时过长已停止等待；可稍后重试或查看服务器日志", true);
+              break;
+            }
+            continue;
+          }
+          if (s.state === "done") {
+            toast(`站点已更新到构建产物 ${(s.head || "").slice(0, 7)}`);
+          } else {
+            toast(`拉取失败：${s.error || "未知错误"}`, true);
+          }
+          break;
+        }
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        deployBtn.disabled = false;
+        deployBtn.textContent = "⇩ 拉取站点";
+      }
+    });
+  }
 
   // 同步：触发 → 轮询进度 → 刷新列表；页面加载时若已有同步在跑则自动接上进度
   const syncBtn = document.getElementById("btn-sync");

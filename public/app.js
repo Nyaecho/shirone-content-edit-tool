@@ -90,13 +90,41 @@ function renderShell() {
       syncBtn.textContent = "同步中…";
       try {
         await api("/sync", { method: "POST" });
-        // 轮询直至结束（最长 3 分钟）
-        const deadline = Date.now() + 180000;
+        // 轮询直至结束（硬上限 45 分钟：国内服务器到 codeload 可能极慢，50MB 需 40+ 分钟）
+        const deadline = Date.now() + 45 * 60 * 1000;
+        const t0 = Date.now();
+        let lastBytes = 0;
+        let lastBytesAt = t0;
         for (;;) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 2000));
           const s = await api("/sync/status");
           if (s.status === "running") {
-            syncBtn.textContent = s.files ? `同步中 ${s.files} 文件` : "同步中…";
+            const mb = (s.bytes / 1048576).toFixed(1);
+            if (s.files) {
+              syncBtn.textContent = `解压中 ${s.files} 文件`;
+            } else if (s.totalBytes) {
+              // 有总大小：显示百分比 + 速率与剩余时间
+              const pct = Math.min(100, Math.round((s.bytes / s.totalBytes) * 100));
+              if (s.bytes > lastBytes) {
+                if (lastBytes > 0) {
+                  const rate = (s.bytes - lastBytes) / ((Date.now() - lastBytesAt) / 1000);
+                  const remain = rate > 0 ? (s.totalBytes - s.bytes) / rate : null;
+                  syncBtn.textContent = remain != null
+                    ? `↓${mb}MB ${pct}% 约${remain > 90 ? `${Math.round(remain / 60)}分` : `${Math.round(remain)}秒`}`
+                    : `↓${mb}MB ${pct}%`;
+                } else {
+                  syncBtn.textContent = `↓${mb}MB ${pct}%`;
+                }
+                lastBytes = s.bytes;
+                lastBytesAt = Date.now();
+              }
+            } else {
+              syncBtn.textContent = `↓${mb}MB`;
+            }
+            if (Date.now() > deadline) {
+              toast("同步耗时过长已停止等待；后台可能仍在进行，稍后刷新页面查看结果", true);
+              break;
+            }
             continue;
           }
           if (s.status === "ok") {
@@ -107,7 +135,6 @@ function renderShell() {
           }
           break;
         }
-        if (Date.now() > deadline) toast("同步超时，请稍后重试", true);
       } catch (err) {
         toast(err.message, true);
       } finally {

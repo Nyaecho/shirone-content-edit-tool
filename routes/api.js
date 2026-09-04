@@ -104,6 +104,35 @@ router.get("/me", (req, res) => {
   res.json({ ok: true, data: { devMode: isDev(), timezone: config.siteTimezone } });
 });
 
+// ---------- 仓库同步（镜像预热：手动触发 + 状态轮询） ----------
+
+import * as syncEngine from "../lib/sync.js";
+import * as mirrorStore from "../lib/mirror-store.js";
+
+/** 触发一次镜像同步（进行中则共享同一任务） */
+router.post("/sync", (req, res) => {
+  try {
+    if (isDev()) {
+      return res.json({ ok: true, data: { status: "ok", note: "DEV 模式无需同步" } });
+    }
+    syncEngine.startSync(); // 异步执行，不阻塞响应
+    res.json({ ok: true, data: { status: "running", triggeredAt: Date.now() } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/** 同步状态轮询：idle/running/ok/error + 进度与镜像元信息 */
+router.get("/sync/status", (req, res) => {
+  try {
+    const state = syncEngine.syncState();
+    const meta = mirrorStore.isReady() ? mirrorStore.lastMeta() : null;
+    res.json({ ok: true, data: { ...state, mirrorReady: mirrorStore.isReady(), meta } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ---------- 草稿图片代理（暂存区图片经此读取，供编辑器预览） ----------
 router.get("/drafts/asset", (req, res) => {
   const p = String(req.query.path || "");

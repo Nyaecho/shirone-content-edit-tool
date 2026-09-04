@@ -35,6 +35,15 @@ if (errors.length) {
   process.exit(1);
 }
 
+// 生产模式：启动时异步预热镜像（不阻塞监听；失败不影响服务，读操作回退 GitHub API）
+if (!isDev()) {
+  const { startSync } = await import("./lib/sync.js");
+  startSync().then((s) => {
+    if (s.status === "ok") console.log(`[sync] 镜像预热完成：${s.files} 文件 @ ${s.sha?.slice(0, 7) || "?"}`);
+    else console.warn(`[sync] 镜像预热失败：${s.error}（读操作回退 GitHub API，可稍后手动同步）`);
+  });
+}
+
 app.listen(config.port, () => {
   console.log(`shirone-admin 已启动: http://localhost:${config.port}`);
   console.log(`模式: ${isDev() ? "DEV（本地验证：保存触发下载）" : "PROD（推送 GitHub）"}`);

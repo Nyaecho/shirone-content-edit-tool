@@ -75,6 +75,44 @@ function renderShell() {
   $app.appendChild(shell);
 
   if (state.devMode) document.getElementById("dev-badge").hidden = false;
+  else document.getElementById("btn-sync").hidden = false; // 仅生产模式显示同步按钮
+
+  // 同步：触发 → 轮询进度 → 刷新列表
+  const syncBtn = document.getElementById("btn-sync");
+  if (syncBtn && !syncBtn.hidden) {
+    syncBtn.addEventListener("click", async () => {
+      if (syncBtn.disabled) return;
+      syncBtn.disabled = true;
+      syncBtn.textContent = "同步中…";
+      try {
+        await api("/sync", { method: "POST" });
+        // 轮询直至结束（最长 3 分钟）
+        const deadline = Date.now() + 180000;
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const s = await api("/sync/status");
+          if (s.status === "running") {
+            syncBtn.textContent = s.files ? `同步中 ${s.files} 文件` : "同步中…";
+            continue;
+          }
+          if (s.status === "ok") {
+            toast(`同步完成：${s.files} 文件（${(s.meta?.syncedAt || "").slice(0, 19).replace("T", " ")}）`);
+            await refreshCurrentView();
+          } else {
+            toast(`同步失败：${s.error || "未知错误"}`, true);
+          }
+          break;
+        }
+        if (Date.now() > deadline) toast("同步超时，请稍后重试", true);
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        syncBtn.disabled = false;
+        syncBtn.textContent = "⟳ 同步";
+      }
+    });
+  }
+
   document.getElementById("btn-logout").addEventListener("click", async () => {
     await api("/logout", { method: "POST" }).catch(() => {});
     renderLogin();
@@ -92,6 +130,11 @@ function switchView(view) {
   }
   if (view === "posts") renderPostsList();
   else if (view === "moments") renderMomentsList();
+}
+
+/** 同步完成后刷新当前视图 */
+function refreshCurrentView() {
+  return switchView(state.view);
 }
 
 // ---------- 文章列表 ----------

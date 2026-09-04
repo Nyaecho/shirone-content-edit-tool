@@ -96,55 +96,6 @@ server {
 }
 ```
 
-## 国内服务器访问 GitHub 不稳的处理
-
-admin 访问三类 GitHub 端点（`api.github.com` 读写内容、`codeload.github.com` 拉镜像 tarball、
-git clone 拉部署分支），公共加速镜像通常只覆盖克隆，API 不一定可用。推荐自建 Cloudflare
-Worker 统一代理（免费额度对本场景绰绰有余）：
-
-1. Cloudflare Dashboard → Workers → Create Worker，粘贴以下代码并部署：
-
-```js
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    // 路由约定：
-    //   /api/*            → https://api.github.com/*
-    //   /codeload/<owner>/<repo>/... → https://codeload.github.com/...
-    //   /<owner>/<repo>.git/...（git 智能协议）→ https://github.com/...
-    let target;
-    if (url.pathname.startsWith("/api/")) {
-      target = "https://api.github.com" + url.pathname.slice(4) + url.search;
-    } else if (url.pathname.startsWith("/codeload/")) {
-      target = "https://codeload.github.com" + url.pathname.slice(9) + url.search;
-    } else {
-      target = "https://github.com" + url.pathname + url.search;
-    }
-    const headers = new Headers(request.headers);
-    headers.set("Host", new URL(target).host);
-    return fetch(new Request(target, { method: request.method, headers, body: request.body, redirect: "follow" }));
-  },
-};
-```
-
-2. 绑定自己的子域（如 `gh.你的域名`）：Worker → Settings → Domains & Routes → Add。
-
-3. admin 的 `.env` 配置：
-
-```ini
-GITHUB_API_BASE=https://gh.你的域名/api
-GITHUB_WEB_BASE=https://gh.你的域名/codeload
-```
-
-4. 服务器上的部署仓库同样走代理克隆（一次性）：
-
-```bash
-git clone --filter=blob:none --no-checkout --single-branch \
-     --branch deploy https://gh.你的域名/Nyaecho/Shirone.git /www/wwwroot/blog
-```
-
-此后 admin 推内容、拉镜像、fetch 部署分支全部经 Worker 中转，国内可达。
-
 ## 目录约定
 
 | 内容 | 仓库路径 | 引用方式 |

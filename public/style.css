@@ -123,6 +123,18 @@ body {
 @media (prefers-color-scheme: dark) { .badge-staged { background: #4d3d00; color: #ffe08a; } }
 .btn-staged { background: #b58100; border-color: #b58100; color: #fff; }
 .btn-staged:hover { filter: brightness(1.08); background: #a37500; }
+
+/* 远端有新提交（用户 git push 过）：同步按钮呼吸提示 */
+.btn-remote-ahead {
+  border-color: #0d6efd;
+  color: #0d6efd;
+  animation: remote-pulse 2s ease-in-out infinite;
+}
+@keyframes remote-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(13, 110, 253, 0); }
+}
+@media (prefers-color-scheme: dark) { .btn-remote-ahead { color: #6ea8fe; border-color: #6ea8fe; } }
 .badge-pinned { background: var(--primary-container); color: var(--on-primary-container); }
 .badge-dev { background: var(--tertiary-container); color: var(--on-surface); font-weight: 600; }
 

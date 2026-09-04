@@ -84,6 +84,20 @@ function renderShell() {
   // 同步：触发 → 轮询进度 → 刷新列表；页面加载时若已有同步在跑则自动接上进度
   const syncBtn = document.getElementById("btn-sync");
   if (syncBtn && !syncBtn.hidden) {
+    // 远端落后检测：用户 git push 后提示同步（自身提交不误报，见 store.remoteAhead）
+    const checkRemote = async () => {
+      try {
+        const s = await api("/remote-status");
+        const behind = s.remoteAhead === true;
+        syncBtn.classList.toggle("btn-remote-ahead", behind);
+        syncBtn.title = behind ? "远端有新提交（如你用 git 推送过修改），点击同步拉取" : "从 GitHub 拉取最新内容到本地镜像";
+      } catch {
+        /* 查询失败不提示 */
+      }
+    };
+    state.checkRemoteAhead = checkRemote;
+    checkRemote();
+
     syncBtn.addEventListener("click", async () => {
       if (syncBtn.disabled) return;
       syncBtn.disabled = true;
@@ -96,6 +110,7 @@ function renderShell() {
       } finally {
         syncBtn.disabled = false;
         syncBtn.textContent = "⟳ 同步";
+        checkRemote();
       }
     });
     // 刷新页面后恢复：后台同步不随页面关闭而中止（single-flight 跑在服务器进程里）
@@ -134,8 +149,9 @@ function switchView(view) {
   else if (view === "moments") renderMomentsList();
 }
 
-/** 同步完成后刷新当前视图 */
+/** 同步完成后刷新当前视图（顺带重查远端状态） */
 function refreshCurrentView() {
+  if (typeof state.checkRemoteAhead === "function") state.checkRemoteAhead();
   return switchView(state.view);
 }
 

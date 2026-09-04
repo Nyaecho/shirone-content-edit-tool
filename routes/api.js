@@ -98,6 +98,17 @@ router.get("/me", (req, res) => {
   res.json({ ok: true, data: { devMode: isDev(), timezone: config.siteTimezone } });
 });
 
+// ---------- 远端状态（列表页检测：用户 git push 后提示同步） ----------
+
+router.get("/remote-status", async (req, res) => {
+  try {
+    const { remoteAhead } = await import("../lib/store.js");
+    res.json({ ok: true, data: { remoteAhead: await remoteAhead() } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ---------- 仓库同步（镜像预热：手动触发 + 状态轮询） ----------
 
 import * as syncEngine from "../lib/sync.js";

@@ -48,19 +48,13 @@ router.get("/session", (req, res) => {
 
 // ---------- 部署 webhook（主题仓 Actions 调用，HMAC 签名认证，不走 Cookie） ----------
 
-// 需要原始请求体计算签名，这里注册一个仅作用于该路由的 raw-body 解析
-const deployRawBody = express.json({
-  limit: "64kb",
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
-  },
-});
+// 原始请求体由 server.js 全局 express.json 的 verify 回调捕获（req.rawBody）。
 
 /**
  * POST /api/deploy/hook   受理部署（Actions 通知，X-Signature 签名验证）
  * GET  /api/deploy/hook?ticket=xxx  轮询部署回执（同样要求签名）
  */
-router.post("/deploy/hook", deployRawBody, (req, res) => {
+router.post("/deploy/hook", (req, res) => {
   try {
     if (!deployEnabled()) {
       return res.status(503).json({ ok: false, error: "部署功能未配置（缺少 DEPLOY_SECRET / DEPLOY_PAT）" });

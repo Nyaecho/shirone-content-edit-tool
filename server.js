@@ -13,7 +13,14 @@ const app = express();
 
 app.disable("x-powered-by");
 app.set("trust proxy", true); // 反代下取真实 IP 与 x-forwarded-proto
-app.use(express.json({ limit: "2mb" }));
+// 全局 JSON 解析；verify 回调顺带捕获原始字节（部署 webhook 验签需要，
+// body-parser 的 req._body 机制会让路由级二次解析静默跳过，必须在这里拿）
+app.use(express.json({
+  limit: "2mb",
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 
 app.use("/api", router);
 

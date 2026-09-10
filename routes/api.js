@@ -18,6 +18,8 @@ import * as momentsService from "../services/moments.js";
 import * as taxonomyService from "../services/taxonomy.js";
 import { momentAssetPath, postAssetPath } from "../lib/content.js";
 import { getImage } from "../lib/image-staging.js";
+import * as store from "../lib/store.js";
+import { invalidateCache as invalidateTaxonomies } from "../services/taxonomy.js";
 import { deployEnabled, verifySignature, acceptDeploy, getTicketState, manualDeploy } from "../lib/deploy.js";
 import JSZip from "jszip";
 import crypto from "node:crypto";
@@ -177,6 +179,52 @@ router.get("/taxonomies", async (req, res) => {
   }
 });
 
+// ---------- 图片读取（上传后预览 / 已传图管理，不走公开 CDN） ----------
+
+const MIME_BY_EXT = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", avif: "image/avif", svg: "image/svg+xml", bmp: "image/bmp", ico: "image/x-icon",
+};
+
+function contentTypeFor(filename) {
+  const ext = (filename.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase();
+  return MIME_BY_EXT[ext] || "application/octet-stream";
+}
+
+/**
+ * GET /api/asset?path=<仓库相对路径>
+ * 图片代理：镜像/内容仓读取二进制后回传（镜像因 export-ignore 不含 public/，
+ * 未命中回退 GitHub raw）。带长缓存头——文件名含内容 hash，重名不同内容的可能性极低。
+ */
+router.get("/asset", async (req, res) => {
+  try {
+    const relPath = String(req.query.path || "");
+    // 防路径穿越（拒绝 .. 段）+ 白名单目录（content/ 文章图与 public/ 动态图）；
+    // 文件名允许 Unicode（仓库可能存在手工提交的中文命名图片）
+    if (!relPath || relPath.includes("..") || /[\0\r\n]/.test(relPath)) {
+      return res.status(400).json({ ok: false, error: "非法路径" });
+    }
+    if (!relPath.startsWith("content/") && !relPath.startsWith("public/")) {
+      return res.status(400).json({ ok: false, error: "仅允许 content/ 与 public/ 下的资源" });
+    }
+
+    let buffer = null;
+    // DEV 暂存图片优先（未落盘的会话图）
+    if (isDev()) {
+      const staged = getImage(relPath);
+      if (staged) buffer = staged.buffer;
+    }
+    if (!buffer) buffer = await store.getBinaryFile(relPath);
+    if (!buffer) return res.status(404).json({ ok: false, error: "文件不存在" });
+
+    res.setHeader("Content-Type", contentTypeFor(relPath));
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.send(buffer);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ---------- 文章 ----------
 
 router.get("/posts", async (req, res) => {
@@ -204,6 +252,7 @@ router.post("/posts", async (req, res) => {
     if (errors.length) return res.status(400).json({ ok: false, error: errors.join("；") });
 
     const result = await postsService.createPost(form || {}, String(body || ""), config.siteTimezone);
+    invalidateTaxonomies(); // 新内容可能带来新标签/分类，缓存失效即时重建
     await respondWithSave(res, result, {
       kind: "post",
       slug: result.slug,
@@ -218,6 +267,7 @@ router.put("/posts/:slug", async (req, res) => {
   try {
     const { form, body } = req.body || {};
     const result = await postsService.updatePost(req.params.slug, form || {}, String(body || ""), config.siteTimezone);
+    invalidateTaxonomies();
     await respondWithSave(res, result, {
       kind: "post",
       slug: result.slug,
@@ -231,6 +281,7 @@ router.put("/posts/:slug", async (req, res) => {
 router.delete("/posts/:slug", async (req, res) => {
   try {
     const result = await postsService.deletePost(req.params.slug);
+    invalidateTaxonomies();
     if (result.devDeleted) {
       return res.json({ ok: true, data: { message: `DEV 模式：已模拟删除 ${result.path}（无副作用）` } });
     }
@@ -292,6 +343,7 @@ router.post("/moments", async (req, res) => {
       return res.status(400).json({ ok: false, error: "动态内容与图片不能同时为空" });
     }
     const result = await momentsService.createMoment(form || {}, String(body || ""), config.siteTimezone);
+    invalidateTaxonomies();
     await respondWithSave(res, result, { kind: "moment", id: result.id, message: "动态发布成功" });
   } catch (err) {
     handleError(res, err);
@@ -302,6 +354,7 @@ router.put("/moments/:id", async (req, res) => {
   try {
     const { form, body } = req.body || {};
     const result = await momentsService.updateMoment(req.params.id, form || {}, String(body || ""));
+    invalidateTaxonomies();
     await respondWithSave(res, result, { kind: "moment", id: result.id, message: "动态保存成功" });
   } catch (err) {
     handleError(res, err);
@@ -311,6 +364,7 @@ router.put("/moments/:id", async (req, res) => {
 router.delete("/moments/:id", async (req, res) => {
   try {
     const result = await momentsService.deleteMoment(req.params.id);
+    invalidateTaxonomies();
     if (result.devDeleted) {
       return res.json({ ok: true, data: { message: `DEV 模式：已模拟删除 ${result.path}（无副作用）` } });
     }

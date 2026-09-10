@@ -316,13 +316,16 @@ export function mountDialogs({ toast }) {
     },
 
     imageGrid(editor, { images = [] } = {}) {
+      // 缩略图走 /api/asset 代理（admin 域名下没有站点静态资源）
+      const assetUrl = (img) =>
+        `/api/asset?path=${encodeURIComponent(img.repoPath || (String(img.src || "").startsWith("/") ? `public${String(img.src).split("?")[0]}` : img.src || ""))}`;
       const checkboxes = images.length
         ? images
             .map(
               (img, i) =>
                 `<label class="check" style="display:inline-flex;margin:4px 12px 4px 0;">
                    <input type="checkbox" data-ref="${img.repoPath || img.src}" value="${img.webPath || img.src}" />
-                   <img src="${img.webPath || img.src}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;" />
+                   <img src="${assetUrl(img)}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;" />
                    ${img.name || ""}
                  </label>`,
             )

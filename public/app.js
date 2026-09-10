@@ -442,10 +442,34 @@ async function openPostEditor(slug) {
   }
 
   const initial = post.body || "";
+  // 预览时把文章内相对/根路径图片重写为 /api/asset 代理 URL，
+ // 否则浏览器请求 admin 源站舍径拿不到图片（线上站点才有这些资源）
+  const rewritePreviewImages = (html) => {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html;
+    for (const img of tpl.content.querySelectorAll("img[src]")) {
+      const src = img.getAttribute("src");
+      if (/^(https?:|data:|blob:)/i.test(src)) continue; // 外链/dataURL 不动
+      let repoPath;
+      if (src.startsWith("./") || !src.startsWith("/")) {
+        repoPath = `content/posts/${post.slug}/${src.replace(/^\.?\//, "")}`;
+      } else {
+        repoPath = `public${src.split("?")[0]}`;
+      }
+      img.setAttribute("src", assetUrl(repoPath));
+    }
+    return tpl.innerHTML;
+  };
   const mde = new EasyMDE({
     element: qs("#pe-md"),
     initialValue: initial,
     spellChecker: false,
+    previewRender: (plainText, preview) => {
+      // 先用内置 marked 渲染，再重写图片 src 后注入预览容器
+      const rendered = EasyMDE.prototype.markdown.call(mde, plainText);
+      preview.innerHTML = rewritePreviewImages(rendered);
+      return null;
+    },
     toolbar: [
       "bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|",
       "link", "image", "table", "code", "|",
@@ -558,7 +582,7 @@ async function openPostEditor(slug) {
   qs("#btn-back").addEventListener("click", () => renderPostsList());
   qs("#btn-delete-post").addEventListener("click", () => deleteContent("post", post.slug));
 
-  drawUploadList();
+  drawUploadList(); // 已传图回填（重开编辑器时可管理：预览/插入引用/移除）
 }
 
 function collectPostForm() {
@@ -596,6 +620,8 @@ async function savePost(isNew) {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
     loadTaxonomies(); // 新写入的标签/分类即时进入候选池
+    // 发布成功后返回列表页（异步刷新标签池，不阻塞导航）
+    renderPostsList();
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -748,7 +774,11 @@ function drawMomentImages() {
   state.momentImages.forEach((img, idx) => {
     const cell = document.createElement("div");
     cell.className = "mi-cell";
-    cell.innerHTML = `<img src="${esc(img.src)}" alt="${esc(img.alt || "")}" loading="lazy" />
+    // src 为站点根路径（/images/albums/...）→ 转仓库路径走代理预览
+    const repoPath = String(img.src || "").startsWith("/")
+      ? `public${String(img.src).split("?")[0]}`
+      : String(img.src || "");
+    cell.innerHTML = `<img src="${assetUrl(repoPath)}" alt="${esc(img.alt || "")}" loading="lazy" />
       <button type="button" class="mi-remove" title="移除">×</button>`;
     cell.querySelector(".mi-remove").addEventListener("click", () => {
       state.momentImages.splice(idx, 1);
@@ -785,6 +815,8 @@ async function saveMoment(isNew) {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
     loadTaxonomies(); // 新写入的标签/分类即时进入候选池
+    // 发布成功后返回列表页（异步刷新标签池，不阻塞导航）
+    renderMomentsList();
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -824,8 +856,8 @@ async function uploadOne(file, target) {
     else fd.append("momentDate", momentDateForUpload());
 
     const data = await api("/upload", { method: "POST", body: fd });
-    item.textContent = `✓ ${file.name}`;
-    item.classList.add("ok");
+    // 成功后移除文字状态项，缩略图卡片即反馈
+    item.remove();
 
     if (target === "post") {
       // 记录到已传图清单 + 在光标处插入引用
@@ -842,8 +874,36 @@ async function uploadOne(file, target) {
   }
 }
 
+/**
+ * 文章已传图清单：缩略图 + 文件名 + 复制引用/删除。
+ * 上传成功即时插入（uploadOne），重开编辑器时由 openPostEditor 调用回填。
+ */
 function drawUploadList() {
-  // 文章已传图清单即 upload-list（上传时逐条添加，此处仅刷新 image-grid 对话框数据源）
+  const listEl = qs("#pe-upload-list");
+  if (!listEl) return;
+  const images = state.current.post?.images || [];
+  listEl.innerHTML = "";
+  if (!images.length) return;
+  for (const img of images) {
+    const cell = document.createElement("div");
+    cell.className = "uploaded-image";
+    cell.innerHTML = `
+      <img src="${assetUrl(img.repoPath)}" alt="${esc(img.name || "")}" loading="lazy" />
+      <div class="ui-actions">
+        <button type="button" class="ui-btn" data-act="insert" title="在光标处插入引用">插入</button>
+        <button type="button" class="ui-btn ui-btn-danger" data-act="remove" title="从清单移除（不删除仓库文件）">移除</button>
+      </div>
+      <span class="ui-name" title="${esc(img.repoPath)}">${esc(img.name || "")}</span>`;
+    cell.querySelector('[data-act="insert"]').addEventListener("click", () => {
+      insertAtCursor(state.editors.post, `\n![${img.name}](./${img.name})\n`);
+    });
+    cell.querySelector('[data-act="remove"]').addEventListener("click", () => {
+      const cur = state.current.post;
+      cur.images = cur.images.filter((i) => i.repoPath !== img.repoPath);
+      drawUploadList();
+    });
+    listEl.appendChild(cell);
+  }
 }
 
 function setupEditorDrop(mde, target) {
@@ -888,6 +948,11 @@ async function deleteContent(kind, id) {
 
 function qs(sel) {
   return document.querySelector(sel);
+}
+
+/** 仓库路径/web 路径 → 可预览的 URL（admin 域名下的图片代理，带 Cookie 认证） */
+function assetUrl(repoPath) {
+  return `/api/asset?path=${encodeURIComponent(repoPath)}`;
 }
 
 function esc(s) {
@@ -1076,6 +1141,7 @@ DIALOGS = mountDialogs({ toast });
 api("/me")
   .then((data) => {
     state.devMode = data.devMode;
+    loadTaxonomies(); // 异步预取已有标签/分类（不阻塞渲染，编辑器打开时基本已就绪）
     renderShell();
   })
   .catch(() => renderLogin());

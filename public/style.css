@@ -242,6 +242,27 @@ body {
 .upload-item.ok { color: var(--on-surface-variant); }
 .upload-item.fail { color: var(--error); }
 
+/* 文章已传图缩略图卡片 */
+.uploaded-image {
+  position: relative; width: 96px; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--outline-variant); background: var(--surface-2);
+}
+.uploaded-image img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+.uploaded-image .ui-actions {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; background: rgb(0 0 0 / 55%); opacity: 0; transition: opacity 0.15s;
+}
+.uploaded-image:hover .ui-actions { opacity: 1; }
+.uploaded-image .ui-btn {
+  border: none; border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  background: rgb(255 255 255 / 90%); color: #1d1b20;
+}
+.uploaded-image .ui-btn-danger { background: var(--error); color: #fff; }
+.uploaded-image .ui-name {
+  display: block; padding: 3px 6px; font-size: 11px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .EasyMDEContainer { border-radius: var(--radius-m); overflow: hidden; border: 1px solid var(--outline-variant); }
 .EasyMDEContainer .CodeMirror { background: var(--surface); color: var(--on-surface); }
 .EasyMDEContainer .editor-toolbar { background: var(--surface-2); border-color: var(--outline-variant); }

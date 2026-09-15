@@ -39,6 +39,7 @@
       <nav class="topbar-nav">
         <button class="nav-btn" data-view="posts">文章</button>
         <button class="nav-btn" data-view="moments">动态</button>
+        <button class="nav-btn" data-view="timeline">时间线</button>
       </nav>
       <div class="topbar-actions">
         <button class="btn btn-ghost" id="btn-deploy" hidden title="手动拉取站点构建产物（Actions 部署偶发超时失败时的补救）">⇩ 拉取站点</button>
@@ -56,7 +57,7 @@
       </div>
       <div class="filter-row">
         <input type="search" class="search-input" id="post-search" placeholder="搜索标题 / 标签 / 分类…" />
-        <label class="check"><input type="checkbox" id="post-hide-draft" /> 隐藏草稿</label>
+        <label class="toggle" data-on="🙈" data-off="👁"><input type="checkbox" id="post-hide-draft" /><span>隐藏草稿</span></label>
       </div>
       <div class="card-list" id="post-list"></div>
     </template>
@@ -69,9 +70,75 @@
       </div>
       <div class="filter-row">
         <input type="search" class="search-input" id="moment-search" placeholder="搜索内容 / 标签…" />
-        <label class="check"><input type="checkbox" id="moment-hide-draft" /> 隐藏草稿</label>
+        <label class="toggle" data-on="🙈" data-off="👁"><input type="checkbox" id="moment-hide-draft" /><span>隐藏草稿</span></label>
       </div>
       <div class="card-list" id="moment-list"></div>
+    </template>
+
+    <!-- 时间线列表 -->
+    <template id="tpl-timeline">
+      <div class="page-head">
+        <h2>时间线</h2>
+        <button class="btn btn-primary" id="btn-new-timeline">新建节点</button>
+      </div>
+      <div class="filter-row">
+        <input type="search" class="search-input" id="timeline-search" placeholder="搜索标题 / 副标题 / 标签…" />
+      </div>
+      <div class="card-list" id="timeline-list"></div>
+    </template>
+
+    <!-- 时间线节点编辑器 -->
+    <template id="tpl-timeline-editor">
+      <div class="editor-head">
+        <button class="btn btn-ghost" id="btn-back">← 返回</button>
+        <div class="editor-head-actions">
+          <button class="btn btn-ghost" id="btn-delete-timeline">删除</button>
+          <button class="btn btn-primary" id="btn-save-timeline">保存</button>
+        </div>
+      </div>
+      <div class="timeline-editor card">
+        <div class="field-row">
+          <label class="field"><span class="field-label">标题 *</span>
+            <input type="text" id="te-title" placeholder="如：个人博客初步搭建完成" /></label>
+          <label class="field"><span class="field-label">日期 *</span>
+            <input type="text" id="te-date" placeholder="如：2026.09 或 2024.09 – 2026.06" /></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span class="field-label">分类</span>
+            <select id="te-category"></select>
+            <span class="field-hint">选项来自内容仓 config/timeline.yaml</span></label>
+          <label class="field"><span class="field-label">副标题 / 机构 / 角色</span>
+            <input type="text" id="te-subtitle" placeholder="如：属于自己的小站正式起步" /></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span class="field-label">地点</span>
+            <input type="text" id="te-location" placeholder="如：Hangzhou, China" /></label>
+          <label class="field"><span class="field-label">图标（Iconify 名）</span>
+            <input type="text" id="te-icon" placeholder="如：material-symbols:rocket-launch-rounded" /></label>
+        </div>
+        <label class="field"><span class="field-label">描述</span>
+          <textarea id="te-description" rows="3" placeholder="详细描述或背景说明"></textarea></label>
+        <label class="field"><span class="field-label">标签</span>
+          <input type="text" id="te-tags" placeholder="回车添加" /></label>
+        <div class="tag-box" id="te-tag-box"></div>
+
+        <div class="field">
+          <span class="field-label">要点 / 关键成就</span>
+          <div class="item-rows" id="te-highlights"></div>
+          <button type="button" class="btn btn-ghost" id="btn-add-highlight">＋ 添加要点</button>
+        </div>
+
+        <div class="field">
+          <span class="field-label">关联链接</span>
+          <div class="item-rows" id="te-links"></div>
+          <button type="button" class="btn btn-ghost" id="btn-add-link">＋ 添加链接</button>
+        </div>
+
+        <div class="switch-row">
+          <label class="toggle" data-on="⭐" data-off="☆"><input type="checkbox" id="te-featured" /><span>重点里程碑</span></label>
+          <label class="toggle" data-on="🙈" data-off="👁"><input type="checkbox" id="te-disabled" /><span>隐藏节点</span></label>
+        </div>
+      </div>
     </template>
 
     <!-- 文章编辑器 -->
@@ -79,7 +146,7 @@
       <div class="editor-head">
         <button class="btn btn-ghost" id="btn-back">← 返回</button>
         <div class="editor-head-actions">
-          <label class="check"><input type="checkbox" id="pe-refresh-updated" /> 刷新更新时间</label>
+          <label class="toggle" data-on="🔄" data-off="🕒"><input type="checkbox" id="pe-refresh-updated" /><span>刷新更新时间</span></label>
           <button class="btn btn-ghost" id="btn-delete-post">删除</button>
           <button class="btn btn-primary" id="btn-save-post">保存</button>
         </div>
@@ -107,9 +174,9 @@
           <label class="field"><span class="field-label">摘要</span>
             <textarea id="pe-description" rows="3" placeholder="留空则自动截取正文前段"></textarea></label>
           <div class="switch-row">
-            <label class="switch"><input type="checkbox" id="pe-pinned" /><span>置顶</span></label>
-            <label class="switch"><input type="checkbox" id="pe-draft" /><span>草稿（同步仓库，生产站点隐藏）</span></label>
-            <label class="switch"><input type="checkbox" id="pe-comment" checked /><span>开启评论</span></label>
+            <label class="toggle" data-on="📌" data-off="📌"><input type="checkbox" id="pe-pinned" /><span>置顶</span></label>
+            <label class="toggle" data-on="✏️" data-off="📄"><input type="checkbox" id="pe-draft" /><span>草稿（同步仓库，生产站点隐藏）</span></label>
+            <label class="toggle" data-on="💬" data-off="💬"><input type="checkbox" id="pe-comment" checked /><span>开启评论</span></label>
           </div>
           <div class="meta-note" id="pe-meta-note" hidden></div>
         </section>
@@ -154,8 +221,8 @@
         <div class="tag-box" id="me-tag-box"></div>
         <div class="tag-suggest" id="me-tag-suggest" hidden></div>
         <div class="field-row">
-          <label class="switch"><input type="checkbox" id="me-pinned" /><span>置顶</span></label>
-          <label class="switch"><input type="checkbox" id="me-draft" /><span>草稿</span></label>
+          <label class="toggle" data-on="📌" data-off="📌"><input type="checkbox" id="me-pinned" /><span>置顶</span></label>
+          <label class="toggle" data-on="✏️" data-off="📄"><input type="checkbox" id="me-draft" /><span>草稿</span></label>
         </div>
         <div class="moment-images">
           <div class="moment-images-head">

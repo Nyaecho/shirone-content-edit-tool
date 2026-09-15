@@ -94,7 +94,55 @@ body {
   flex: 1; max-width: 420px; padding: 9px 16px; border-radius: 999px;
   border: 1px solid var(--outline); background: var(--surface-2); color: var(--on-surface); font-size: 14px;
 }
-.check { display: inline-flex; align-items: center; gap: 6px; color: var(--on-surface-variant); font-size: 13px; cursor: pointer; }
+/*
+ * 图标开关（.toggle）：隐藏原生 checkbox，点击整颗胶囊切换。
+ * data-on / data-off 提供选中/未选中两个 emoji 图标。
+ * 所有逻辑仍读原生 input.checked，JS 零改动。
+ */
+.toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 14px 5px 10px; border-radius: 999px;
+  border: 1px solid var(--outline-variant); background: var(--surface);
+  color: var(--on-surface-variant); font-size: 13px; cursor: pointer;
+  user-select: none; transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.toggle::before {
+  content: attr(data-off); font-size: 15px; line-height: 1;
+  filter: grayscale(0.5) opacity(0.7); transition: filter 0.15s, transform 0.15s;
+}
+.toggle:hover { border-color: var(--primary); }
+.toggle input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.toggle input:checked + span { color: var(--on-surface); font-weight: 600; }
+.toggle input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+.toggle:has(input:checked) {
+  border-color: var(--primary); background: var(--primary-container); color: var(--on-primary-container);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 8%);
+}
+.toggle:has(input:checked)::before {
+  content: attr(data-on); filter: none; transform: scale(1.08);
+}
+
+/* 图片画廊多选（.img-pick）：隐藏 checkbox，点缩略图整卡切换，选中显示角标勾 */
+.img-pick {
+  position: relative; display: inline-flex; flex-direction: column; align-items: center; gap: 4px;
+  margin: 4px 10px 4px 0; padding: 6px; border-radius: 10px;
+  border: 2px solid transparent; cursor: pointer; max-width: 96px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.img-pick input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.img-pick img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; display: block; }
+.img-pick-name {
+  font-size: 10.5px; color: var(--on-surface-variant); max-width: 84px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.img-pick-check {
+  position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--primary); color: var(--on-primary);
+  font-size: 12px; font-weight: 700; opacity: 0; transform: scale(0.5); transition: opacity 0.15s, transform 0.15s;
+}
+.img-pick:has(input:checked) { border-color: var(--primary); background: var(--primary-container); }
+.img-pick:has(input:checked) .img-pick-check { opacity: 1; transform: scale(1); }
 
 .card {
   background: var(--surface-2); border: 1px solid var(--outline-variant);
@@ -188,6 +236,11 @@ body {
   color: var(--on-surface); padding: 8px 12px; font-size: 14px; font-family: inherit; resize: vertical;
 }
 .field input:focus, .field textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+.field select {
+  border: 1px solid var(--outline); border-radius: 8px; background: var(--surface);
+  color: var(--on-surface); padding: 8px 12px; font-size: 14px; font-family: inherit;
+}
+.field select:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
 .field-row { display: flex; gap: 12px; }
 .loc-row { display: flex; gap: 6px; align-items: stretch; }
 .loc-row input { flex: 1; min-width: 0; }
@@ -224,7 +277,8 @@ body {
 .tag-suggest-chip:hover .tag-suggest-count { background: var(--surface); }
 .tag-suggest-more { font-size: 11px; color: var(--on-surface-variant); }
 
-.switch-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+.switch-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; align-items: center; }
+/* 兼容残留：.switch 已全面替换为 .toggle，保留极简定义防止遗漏引用 */
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .switch input { width: 16px; height: 16px; accent-color: var(--primary); }
 
@@ -321,6 +375,22 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 .item-rows { display: flex; flex-direction: column; gap: 10px; }
 .item-row { border: 1px solid var(--outline-variant); border-radius: var(--radius-m); padding: 10px 12px; position: relative; }
 .item-row .field { margin-bottom: 8px; }
+
+/* 时间线编辑器 */
+.timeline-editor { max-width: 860px; padding: 20px 24px; }
+.timeline-editor .item-row .hl-input { width: 100%; }
+.timeline-editor .item-rows { margin: 8px 0; }
+.timeline-editor > .field > .btn-ghost { margin-top: 2px; }
+/* 要点行：输入框占满，删除按钮不遮挡 */
+#te-highlights .item-row { display: flex; align-items: center; gap: 8px; padding: 6px 40px 6px 12px; }
+#te-highlights .item-row input {
+  flex: 1; min-width: 0; border: 1px solid var(--outline); border-radius: 8px;
+  background: var(--surface); color: var(--on-surface); padding: 8px 12px; font-size: 14px; font-family: inherit;
+}
+/* 链接行：三字段自适应 + 右上删除 */
+#te-links .item-row.link-row { padding: 34px 40px 10px 12px; }
+#te-links .item-row.link-row .link-fields { flex-wrap: wrap; }
+#te-links .item-row.link-row .fr-remove { top: 8px; }
 
 /* ---------- toast ---------- */
 #toast-box { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 200; }

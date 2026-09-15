@@ -13,11 +13,15 @@ const state = {
   devMode: false,
   view: "posts",
   tags: { post: [], moment: [] },
-  current: { post: null, moment: null },
+  current: { post: null, moment: null, timeline: null },
   editors: {},
   momentImages: [],
   taxonomies: null, // { tags: [{name,posts,moments,total}], categories: [{name,count}] }，null = 未加载
 };
+
+// 时间线：全量节点 + 分类（GET /timeline 一次拉齐；编辑靠快照定位，不单独拉详情）
+let timelineCache = [];
+let timelineCategories = [];
 
 // ---------- API ----------
 
@@ -189,6 +193,7 @@ function switchView(view) {
   }
   if (view === "posts") renderPostsList();
   else if (view === "moments") renderMomentsList();
+  else if (view === "timeline") renderTimelineList();
 }
 
 /** 同步完成后刷新当前视图（顺带重查远端状态与标签/分类候选池） */
@@ -385,6 +390,294 @@ function drawMoments() {
       <div class="cc-meta">${esc(m.published)}</div>`;
     card.addEventListener("click", () => openMomentEditor(m.id));
     listEl.appendChild(card);
+  }
+}
+
+// ---------- 时间线列表 ----------
+
+async function renderTimelineList() {
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  main.appendChild(document.getElementById("tpl-timeline").content.cloneNode(true));
+
+  document.getElementById("btn-new-timeline").addEventListener("click", () => openTimelineEditor(null));
+  document.getElementById("timeline-search").addEventListener("input", drawTimeline);
+
+  const listEl = document.getElementById("timeline-list");
+  listEl.innerHTML = `<div class="empty">加载中…</div>`;
+  try {
+    const data = await api("/timeline");
+    timelineCache = data.items || [];
+    timelineCategories = data.categories || [];
+    drawTimeline();
+  } catch (err) {
+    listEl.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+function drawTimeline() {
+  const listEl = document.getElementById("timeline-list");
+  const q = document.getElementById("timeline-search").value.trim().toLowerCase();
+
+  const catLabel = (key) => {
+    const c = timelineCategories.find((c) => c.key === key);
+    return c ? c.label : key;
+  };
+
+  const items = timelineCache
+    .map((item, index) => ({ item, index })) // 保留原始下标供编辑器快照定位
+    .filter(({ item }) => {
+      if (!q) return true;
+      return [item.title, item.subtitle, item.description, ...(item.tags || [])]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q);
+    });
+
+  if (!items.length) {
+    listEl.innerHTML = `<div class="empty">没有符合条件的时间线节点</div>`;
+    return;
+  }
+  listEl.innerHTML = "";
+  for (const { item, index } of items) {
+    const card = document.createElement("div");
+    card.className = "content-card";
+    card.innerHTML = `
+      <div class="cc-main">
+        <div class="cc-title">${esc(item.title)}
+          ${item.featured ? '<span class="badge badge-pinned">★ 重点</span>' : ""}
+          ${item.enable === false ? '<span class="badge badge-draft">已隐藏</span>' : ""}
+          ${item.category ? `<span class="badge">${esc(catLabel(item.category))}</span>` : ""}
+        </div>
+        <div class="cc-sub">${esc([item.subtitle, ...(item.tags || []).map((t) => `#${t}`)].filter(Boolean).join(" "))}</div>
+      </div>
+      <div class="cc-meta">${esc(item.date)}</div>`;
+    card.addEventListener("click", () => openTimelineEditor(index));
+    listEl.appendChild(card);
+  }
+}
+
+// ---------- 时间线节点编辑器 ----------
+
+async function openTimelineEditor(index) {
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  main.appendChild(document.getElementById("tpl-timeline-editor").content.cloneNode(true));
+
+  const isNew = index == null;
+  const original = isNew ? null : timelineCache[index];
+  if (!isNew && !original) {
+    toast("节点不存在，请返回列表刷新", true);
+    renderTimelineList();
+    return;
+  }
+  // 快照深拷贝：original 随服务端重读比对，item 单独留存初始值供回填比对
+  state.current.timeline = { index: isNew ? null : index, original: original ? JSON.parse(JSON.stringify(original)) : null };
+  const item = original || {};
+
+  qs("#te-title").value = item.title || "";
+  qs("#te-date").value = item.date || "";
+  qs("#te-subtitle").value = item.subtitle || "";
+  qs("#te-location").value = item.location || "";
+  qs("#te-icon").value = item.icon || "";
+  qs("#te-description").value = item.description || "";
+  qs("#te-featured").checked = item.featured === true;
+  qs("#te-disabled").checked = item.enable === false;
+
+  // 分类下拉：空选项 + yaml 分类清单
+  const catSel = qs("#te-category");
+  catSel.innerHTML =
+    `<option value="">（无分类）</option>` +
+    timelineCategories
+      .map((c) => `<option value="${esc(c.key)}"${item.category === c.key ? " selected" : ""}>${esc(c.label || c.key)}</option>`)
+      .join("");
+  if (!timelineCategories.length) {
+    const opt = document.createElement("option");
+    opt.value = item.category || "";
+    opt.textContent = item.category ? `${item.category}（yaml 未配置分类，保留原值）` : "（无分类）";
+    catSel.innerHTML = "";
+    catSel.appendChild(opt);
+  }
+
+  // 标签（复用文章/动态的标签输入交互；kind 独立避免互串）
+  state.tags.timeline = Array.isArray(item.tags) ? [...item.tags] : [];
+  drawTimelineTags();
+
+  // 要点列表
+  state.timelineHighlights = Array.isArray(item.highlights) ? item.highlights.map(String) : [];
+  drawHighlights();
+  qs("#btn-add-highlight").addEventListener("click", () => {
+    state.timelineHighlights.push("");
+    drawHighlights(true);
+  });
+
+  // 关联链接
+  state.timelineLinks = Array.isArray(item.links) ? item.links.map((l) => ({ ...l })) : [];
+  drawLinks();
+  qs("#btn-add-link").addEventListener("click", () => {
+    state.timelineLinks.push({ label: "", url: "", icon: "" });
+    drawLinks(true);
+  });
+
+  qs("#btn-save-timeline").addEventListener("click", saveTimelineItem);
+  qs("#btn-back").addEventListener("click", renderTimelineList);
+  qs("#btn-delete-timeline").addEventListener("click", deleteTimelineItem);
+}
+
+/** 时间线标签输入：不复用 drawTags(kind) 的 post/moment 选择器硬编码，单独绑定 */
+function drawTimelineTags() {
+  const box = qs("#te-tag-box");
+  const input = qs("#te-tags");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const tag of state.tags.timeline) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.innerHTML = `#${esc(tag)} <button type="button" title="移除">×</button>`;
+    chip.querySelector("button").addEventListener("click", () => {
+      state.tags.timeline = state.tags.timeline.filter((t) => t !== tag);
+      drawTimelineTags();
+    });
+    box.appendChild(chip);
+  }
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const val = input.value.trim().replace(/^#/, "");
+      if (val && !state.tags.timeline.some((t) => t.toLowerCase() === val.toLowerCase())) {
+        state.tags.timeline.push(val);
+        drawTimelineTags();
+      }
+      input.value = "";
+    }
+  };
+}
+
+/** 绘制要点输入行；focusLast = 新增行自动聚焦 */
+function drawHighlights(focusLast = false) {
+  const listEl = qs("#te-highlights");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+  state.timelineHighlights.forEach((text, idx) => {
+    const row = document.createElement("div");
+    row.className = "item-row";
+    row.innerHTML = `<input type="text" class="hl-input" placeholder="如：接入自动化构建与部署流程" value="${esc(text)}" />
+      <button type="button" class="fr-remove" title="删除此条">×</button>`;
+    row.querySelector("input").addEventListener("input", (e) => {
+      state.timelineHighlights[idx] = e.target.value;
+    });
+    row.querySelector(".fr-remove").addEventListener("click", () => {
+      state.timelineHighlights.splice(idx, 1);
+      drawHighlights();
+    });
+    listEl.appendChild(row);
+  });
+  if (focusLast && listEl.lastElementChild) listEl.lastElementChild.querySelector("input").focus();
+}
+
+/** 绘制链接三字段行；focusLast = 新增行自动聚焦 */
+function drawLinks(focusLast = false) {
+  const listEl = qs("#te-links");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+  state.timelineLinks.forEach((link, idx) => {
+    const row = document.createElement("div");
+    row.className = "item-row link-row";
+    row.innerHTML = `
+      <div class="field-row link-fields">
+        <label class="field"><span class="field-label">名称 *</span>
+          <input type="text" class="lk-label" value="${esc(link.label || "")}" placeholder="如：主题源码" /></label>
+        <label class="field"><span class="field-label">URL *</span>
+          <input type="text" class="lk-url" value="${esc(link.url || "")}" placeholder="https://…" /></label>
+        <label class="field"><span class="field-label">图标（可选）</span>
+          <input type="text" class="lk-icon" value="${esc(link.icon || "")}" placeholder="fa6-brands:github" /></label>
+      </div>
+      <button type="button" class="fr-remove" title="删除此条">×</button>`;
+    row.querySelector(".lk-label").addEventListener("input", (e) => (state.timelineLinks[idx].label = e.target.value));
+    row.querySelector(".lk-url").addEventListener("input", (e) => (state.timelineLinks[idx].url = e.target.value));
+    row.querySelector(".lk-icon").addEventListener("input", (e) => (state.timelineLinks[idx].icon = e.target.value));
+    row.querySelector(".fr-remove").addEventListener("click", () => {
+      state.timelineLinks.splice(idx, 1);
+      drawLinks();
+    });
+    listEl.appendChild(row);
+  });
+  if (focusLast && listEl.lastElementChild) listEl.lastElementChild.querySelector(".lk-label").focus();
+}
+
+/** 组装表单 → PUT /timeline（create/update 共用） */
+async function saveTimelineItem() {
+  const cur = state.current.timeline;
+  const isNew = cur.original == null;
+  const item = {
+    title: qs("#te-title").value.trim(),
+    date: qs("#te-date").value.trim(),
+    category: qs("#te-category").value,
+    subtitle: qs("#te-subtitle").value.trim(),
+    location: qs("#te-location").value.trim(),
+    icon: qs("#te-icon").value.trim(),
+    description: qs("#te-description").value.trim(),
+    tags: state.tags.timeline,
+    highlights: state.timelineHighlights.map((s) => s.trim()).filter(Boolean),
+    links: state.timelineLinks,
+    featured: qs("#te-featured").checked,
+    enable: !qs("#te-disabled").checked, // 表单语义为“隐藏”，取反映射回 enable
+  };
+  if (!item.title || !item.date) {
+    toast("标题与日期不能为空", true);
+    return;
+  }
+
+  const btn = qs("#btn-save-timeline");
+  btn.disabled = true;
+  btn.textContent = "保存中…";
+  try {
+    const res = await api("/timeline", {
+      method: "PUT",
+      body: {
+        op: isNew ? "create" : "update",
+        index: isNew ? undefined : cur.index,
+        original: cur.original,
+        item,
+      },
+    });
+    if (res.download) {
+      triggerDownload(res.download, res.filename);
+      toast(`DEV 模式：已生成下载（${res.filename}）`);
+    } else {
+      toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
+    }
+    renderTimelineList();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "保存";
+  }
+}
+
+async function deleteTimelineItem() {
+  const cur = state.current.timeline;
+  if (cur.original == null) {
+    renderTimelineList(); // 新建未保存直接返回
+    return;
+  }
+  if (!confirm(`确定删除节点「${cur.original.title}」？此操作${state.devMode ? "在 DEV 模式下无副作用" : "会提交删除到 GitHub 仓库"}`)) return;
+  try {
+    const res = await api("/timeline", {
+      method: "PUT",
+      body: { op: "delete", index: cur.index, original: cur.original },
+    });
+    if (res.download) {
+      triggerDownload(res.download, res.filename);
+      toast(`DEV 模式：已生成下载（${res.filename}）`);
+    } else {
+      toast(res.message || "已删除");
+    }
+    renderTimelineList();
+  } catch (err) {
+    toast(err.message, true);
   }
 }
 

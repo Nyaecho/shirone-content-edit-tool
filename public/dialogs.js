@@ -323,10 +323,11 @@ export function mountDialogs({ toast }) {
         ? images
             .map(
               (img, i) =>
-                `<label class="check" style="display:inline-flex;margin:4px 12px 4px 0;">
+                `<label class="img-pick" title="点击选中/取消">
                    <input type="checkbox" data-ref="${img.repoPath || img.src}" value="${img.webPath || img.src}" />
-                   <img src="${assetUrl(img)}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;" />
-                   ${img.name || ""}
+                   <img src="${assetUrl(img)}" alt="${img.name || ""}" loading="lazy" />
+                   <span class="img-pick-name">${img.name || ""}</span>
+                   <span class="img-pick-check" aria-hidden="true">✓</span>
                  </label>`,
             )
             .join("")

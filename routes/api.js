@@ -16,6 +16,7 @@ import { config, isDev } from "../lib/config.js";
 import * as postsService from "../services/posts.js";
 import * as momentsService from "../services/moments.js";
 import * as taxonomyService from "../services/taxonomy.js";
+import * as timelineService from "../services/timeline.js";
 import { momentAssetPath, postAssetPath } from "../lib/content.js";
 import { getImage } from "../lib/image-staging.js";
 import * as store from "../lib/store.js";
@@ -369,6 +370,27 @@ router.delete("/moments/:id", async (req, res) => {
       return res.json({ ok: true, data: { message: `DEV 模式：已模拟删除 ${result.path}（无副作用）` } });
     }
     res.json({ ok: true, data: { message: "动态已删除", commitUrl: result.commitUrl } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ---------- 时间线（data/timeline.ts 整文件读写） ----------
+
+router.get("/timeline", async (req, res) => {
+  try {
+    res.json({ ok: true, data: await timelineService.listTimeline() });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.put("/timeline", async (req, res) => {
+  try {
+    const { op, index, original, item } = req.body || {};
+    const result = await timelineService.mutateTimeline(op, { index, original, item });
+    const messages = { create: "节点已新增", update: "节点已保存", delete: "节点已删除" };
+    await respondWithSave(res, result, { kind: "timeline", message: messages[op] || "已保存" });
   } catch (err) {
     handleError(res, err);
   }

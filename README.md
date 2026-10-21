@@ -194,7 +194,10 @@ GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚�
 - 内存缓存 `MIHEALTH_CACHE_TTL_MS`（默认 10 分钟）；库暂不可用时降级返回上次快照；
 - 每 IP 每分钟 30 次限流；日历日边界按 `SITE_TIMEZONE` 切，与博客时区一致；
 - 统计天数固定 `MIHEALTH_DAYS`（前端零可变参数）；
-- 本地验证：`node scripts/test-mihealth.mjs`（构造 mock 库跑全链路断言）。
+- 本地验证：`node scripts/test-mihealth.mjs`（构造 mock 库跑全链路断言）；
+- **库体积控制**：`node scripts/prune-mihealth.mjs --db <mihealth.db> --keep-days 7`
+  删除 N 天前行（records + dedup；云端保留全量历史，`sync.py backfill` 随时拉回）。
+  cron 与同步串联：`python sync.py incremental && node .../prune-mihealth.mjs --keep-days 7`。
 
 ### 小米凭证部署向导（需登录）
 

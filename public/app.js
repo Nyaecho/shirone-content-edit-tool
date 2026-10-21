@@ -1569,7 +1569,7 @@ function mountMiLogin(toast) {
       toast("免密续期成功");
       await refreshStatus();
     } catch (err) {
-      showError(`续期失败：${err.message}（passToken 过期需重新账号密码登录）`);
+      showError(`续期失败：${err.message}`);
     } finally {
       btnR.disabled = false;
       btnR.textContent = "⟳ 免密续期";

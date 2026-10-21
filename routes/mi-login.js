@@ -98,6 +98,12 @@ miLoginRouter.post("/resume", async (req, res) => {
  * 2FA 验证态绑定浏览器 cookie，服务端无法跨客户端续接（实测），故凭证
  * 部署以「本地 login.py → 上传」为主通道；后续用 /refresh 免密续期即可。 */
 miLoginRouter.post("/upload", async (req, res) => {
+	if (!dbConfigured()) {
+		return res.status(503).json({
+			ok: false,
+			error: "未配置 MIHEALTH_DB——请在服务器 .env 指定 mihealth.db 路径并重启服务",
+		});
+	}
 	const cfg = req.body || {};
 	const required = ["ssecurity", "service_token", "cuser_id"];
 	const missing = required.filter((k) => !cfg[k]);

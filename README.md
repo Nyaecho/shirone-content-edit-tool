@@ -181,8 +181,11 @@ POST   /api/upload           multipart 图片上传（target=post|moment）
 
 ### 健康数据代理（公开只读，无需登录）
 
-博客静态页 `/health/` 的运行时数据源。直读 mihealth-api 项目 `sync.py`
-同步产出的 SQLite 库（`MIHEALTH_DB` 指定路径，只读打开），不代理任何小米原始接口。
+博客静态页 `/health/` 的运行时数据源。**数据同步内置于本服务**（自 mihealth-api
+完整移植：RC4-drop1024 签名加密客户端、时间窗翻页回填、水位增量、401 免密自愈、
+每小时进程内定时器），部署只需：`.env` 配 `MIHEALTH_DB` → 向导上传凭证 →
+自动建库自动回填自动增量，**零 cron 零 Python 依赖**。库与 mihealth-api
+完全同构（records/dedup/sync_state），可互换接管。
 
 ```
 GET /api/health/status     库配置与各数据键覆盖情况（运维排查）
@@ -194,10 +197,11 @@ GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚�
 - 内存缓存 `MIHEALTH_CACHE_TTL_MS`（默认 10 分钟）；库暂不可用时降级返回上次快照；
 - 每 IP 每分钟 30 次限流；日历日边界按 `SITE_TIMEZONE` 切，与博客时区一致；
 - 统计天数固定 `MIHEALTH_DAYS`（前端零可变参数）；
-- 本地验证：`node scripts/test-mihealth.mjs`（构造 mock 库跑全链路断言）；
+- 同步键：steps/sleep/heart_rate/stress/spo2/calories（`lib/mihealth-sync.js` 的
+  `SYNC_KEYS` 可扩展）；
 - **库体积控制**：`node scripts/prune-mihealth.mjs --db <mihealth.db> --keep-days 7`
-  删除 N 天前行（records + dedup；云端保留全量历史，`sync.py backfill` 随时拉回）。
-  cron 与同步串联：`python sync.py incremental && node .../prune-mihealth.mjs --keep-days 7`。
+  删除 N 天前行（可选；进程内自动同步不强制需要，库大几百 MB 也只影响磁盘不影响查询速度）；
+- 本地验证：`node scripts/test-mihealth.mjs`（mock 库快照断言）。
 
 ### 小米凭证部署（需登录）
 

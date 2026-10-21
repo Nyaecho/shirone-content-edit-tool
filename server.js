@@ -10,6 +10,7 @@ import { router } from "./routes/api.js";
 import { healthRouter } from "./routes/health.js";
 import { miLoginRouter } from "./routes/mi-login.js";
 import { requireAuth } from "./lib/auth.js";
+import { dbConfigured } from "./lib/mihealth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -48,6 +49,12 @@ if (errors.length) {
   for (const e of errors) console.error(`  - ${e}`);
   console.error("请参考 .env.example 配置后重启。");
   process.exit(1);
+}
+
+// 健康数据自动同步（进程内定时器，每小时增量；凭证就位后自动开始）
+if (dbConfigured()) {
+  const { startAutoSync } = await import("./lib/mihealth-sync.js");
+  startAutoSync();
 }
 
 // 生产模式：启动时异步预热镜像（不阻塞监听；失败不影响服务，读操作回退 GitHub API）

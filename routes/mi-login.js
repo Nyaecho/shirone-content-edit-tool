@@ -97,7 +97,7 @@ miLoginRouter.post("/resume", async (req, res) => {
  * body: 完整 config.json 内容（ssecurity/service_token/cuser_id/pass_token…）。
  * 2FA 验证态绑定浏览器 cookie，服务端无法跨客户端续接（实测），故凭证
  * 部署以「本地 login.py → 上传」为主通道；后续用 /refresh 免密续期即可。 */
-miLoginRouter.post("/upload", async (req, res) => {
+	miLoginRouter.post("/upload", async (req, res) => {
 	if (!dbConfigured()) {
 		return res.status(503).json({
 			ok: false,
@@ -127,7 +127,45 @@ miLoginRouter.post("/upload", async (req, res) => {
 			sid: cfg.sid || "miothealth",
 			ts: Math.floor(Date.now() / 1000),
 		});
-		res.json({ ok: true, data: { step: "ok" } });
+		// 凭证就位即自动开始：库空 → 全量回填；否则增量补拉（后台异步，不阻塞响应）
+		const { getSyncer, startAutoSync } = await import("../lib/mihealth-sync.js");
+		startAutoSync();
+		const s = getSyncer();
+		let mode = "incremental";
+		try {
+			const { DatabaseSync } = await import("node:sqlite");
+			const db = new DatabaseSync(config.mihealth.db, { readOnly: true });
+			const n = db.prepare("SELECT COUNT(*) c FROM dedup").get().c;
+			db.close();
+			if (!n) mode = "backfill";
+		} catch {
+			mode = "backfill"; // 库还没建
+		}
+		s.run(mode).catch(() => {});
+		res.json({ ok: true, data: { step: "ok", autoSync: mode } });
+	} catch (err) {
+		fail(res, err);
+	}
+});
+
+/** GET /api/mi-login/sync —— 同步状态/手动触发（凭证就位后数据自动化入口）
+ *  ?mode=backfill 全量回填（首次）；默认 incremental 增量 */
+miLoginRouter.get("/sync", async (req, res) => {
+	if (!dbConfigured()) {
+		return res.status(503).json({ ok: false, error: "未配置 MIHEALTH_DB" });
+	}
+	try {
+		const { getSyncer, startAutoSync } = await import("../lib/mihealth-sync.js");
+		startAutoSync();
+		const s = getSyncer();
+		if (req.query.run !== undefined) {
+			const mode = req.query.run === "backfill" ? "backfill" : "incremental";
+			// backfill 可能跑几分钟：异步启动，立即返回进行中状态
+			const p = s.run(mode);
+			if (mode === "incremental") await p;
+			return res.json({ ok: true, data: { running: s.running, lastResult: s.lastResult } });
+		}
+		res.json({ ok: true, data: { running: s.running, lastResult: s.lastResult } });
 	} catch (err) {
 		fail(res, err);
 	}

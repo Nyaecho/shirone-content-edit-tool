@@ -1481,6 +1481,18 @@ function mountMiLogin(toast) {
           ? `凭证已部署${age}，passToken 支持免密续期。`
           : `凭证已部署${age}，但无 passToken——过期后需重新账号密码登录。`;
         $("mi-done-hint").textContent = el.textContent;
+        // 同步状态（数据自动化）
+        try {
+          const syn = await api("/mi-login/sync");
+          const hint = $("mi-sync-hint");
+          if (syn.running) hint.textContent = "数据同步进行中…";
+          else if (syn.lastResult) {
+            const at = new Date(syn.lastResult.at).toLocaleTimeString("zh-CN");
+            hint.textContent = syn.lastResult.error
+              ? `上次同步失败（${at}）：${syn.lastResult.error}`
+              : `上次同步 ${at}（${syn.lastResult.mode}，${syn.lastResult.rows ?? 0} 行）；每小时自动增量`;
+          } else hint.textContent = "每小时自动增量；首次上传凭证会自动全量回填";
+        } catch { $("mi-sync-hint").textContent = ""; }
       }
     } catch { /* 静默 */ }
   }

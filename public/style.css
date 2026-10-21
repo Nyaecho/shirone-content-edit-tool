@@ -414,3 +414,5 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 .mi-captcha img { height: 40px; border-radius: 6px; cursor: pointer; border: 1px solid var(--outline); }
 .mi-hint { font-size: 12.5px; color: var(--on-surface-variant); margin: 0 0 10px; }
 .mi-error { color: var(--error, #b3261e); font-size: 12.5px; margin: 8px 0 0; white-space: pre-wrap; }
+
+.mi-verify-link { display: block; text-align: center; text-decoration: none; margin: 4px 0 8px; }

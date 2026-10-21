@@ -9,7 +9,7 @@ import express from "express";
 import { config } from "../lib/config.js";
 import {
 	LoginError,
-	login2fa,
+	resume2fa,
 	loginPassword,
 	readCredentials,
 	refreshCredentials,
@@ -73,16 +73,16 @@ miLoginRouter.post("/password", async (req, res) => {
 });
 
 /**
- * POST /api/mi-login/2fa —— 第三步：提交 2FA 验证码。
- * body: { loginId, code, context, flag }
+ * POST /api/mi-login/resume —— 2FA 人工验证完成后的续接。
+ * body: { loginId }（用户已在官方验证页完成验证）
  */
-miLoginRouter.post("/2fa", async (req, res) => {
-	const { loginId, code, context, flag } = req.body || {};
-	if (!loginId || !code) {
-		return res.status(400).json({ ok: false, error: "缺少 loginId 或验证码" });
+miLoginRouter.post("/resume", async (req, res) => {
+	const { loginId } = req.body || {};
+	if (!loginId) {
+		return res.status(400).json({ ok: false, error: "缺少 loginId" });
 	}
 	try {
-		const r = await login2fa(loginId, code, { context, flag: Number(flag) || 4 });
+		const r = await resume2fa(loginId);
 		if (r.step === "ok") {
 			writeCredentials(config.mihealth.db, r.session);
 			return res.json({ ok: true, data: { step: "ok" } });

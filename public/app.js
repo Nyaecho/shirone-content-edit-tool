@@ -1460,7 +1460,7 @@ function mountMiLogin(toast) {
     $("mi-step-done").hidden = name !== "done";
     $("btn-mi-submit").hidden = name === "done";
     $("btn-mi-refresh").hidden = !(name === "done" || name === "idle");
-    $("btn-mi-submit").textContent = name === "2fa" ? "提交验证码" : "登录";
+    $("btn-mi-submit").textContent = name === "2fa" ? "我已完成验证" : "登录";
   };
   const showError = (msg) => {
     const el = $("mi-error");
@@ -1495,12 +1495,10 @@ function mountMiLogin(toast) {
     submitBtn.textContent = "请求中…";
     try {
       if (!$("mi-step-2fa").hidden) {
-        // 第三步：2FA 验证码
-        const code = $("mi-2fa-code").value.trim();
-        if (!code) throw new Error("请输入验证码");
-        const r = await api("/mi-login/2fa", {
+        // 第三步：用户已在小米官方验证页完成 → 服务端续接取凭证
+        const r = await api("/mi-login/resume", {
           method: "POST",
-          body: { loginId: wizard.loginId, code, context: wizard.context, flag: wizard.flag },
+          body: { loginId: wizard.loginId },
         });
         toast("凭证部署完成，健康数据页已可用");
         showStep("done");
@@ -1529,9 +1527,8 @@ function mountMiLogin(toast) {
         return;
       }
       if (r.step === "2fa") {
-        wizard = { loginId: r.loginId, ick: null, context: r.context, flag: r.flag };
-        $("mi-2fa-hint").textContent =
-          r.method === "Email" ? `验证码已发到邮箱（${r.hint || "绑定邮箱"}）` : `验证码已通过短信发到（${r.hint || "绑定手机"}）`;
+        wizard = { loginId: r.loginId };
+        $("mi-verify-link").href = r.verifyUrl;
         showStep("2fa");
         return;
       }
@@ -1567,8 +1564,7 @@ function mountMiLogin(toast) {
     wizard = { loginId: null, ick: null, context: null, flag: 4 };
     $("mi-captcha-row").hidden = true;
     $("mi-pass").value = "";
-    $("mi-2fa-code").value = "";
-    showError("");
+        showError("");
     showStep("cred");
     refreshStatus();
     dlg.showModal();

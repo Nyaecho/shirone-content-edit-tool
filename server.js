@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import { config, validateConfig, isDev } from "./lib/config.js";
 import { router } from "./routes/api.js";
 import { healthRouter } from "./routes/health.js";
+import { miLoginRouter } from "./routes/mi-login.js";
+import { requireAuth } from "./lib/auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -26,6 +28,8 @@ app.use(express.json({
 // 公开只读健康数据路由（无认证，直读 mihealth SQLite 库；博客 /health/ 页运行时取数）
 // 必须挂在 /api 之前：api router 内部的 requireAuth 才不会拦截 /api/health/*
 app.use("/api/health", healthRouter);
+// 小米账号凭证部署向导（需登录 Cookie；在 /api 之前挂载以便共享路径空间）
+app.use("/api/mi-login", requireAuth, miLoginRouter);
 app.use("/api", router);
 
 // 静态资源

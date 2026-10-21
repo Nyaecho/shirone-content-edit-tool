@@ -91,6 +91,7 @@ function renderShell() {
     document.getElementById("btn-sync").hidden = false; // 仅生产模式显示同步按钮
     document.getElementById("btn-deploy").hidden = false; // 拉取站点按钮（部署功能未配置时后端返回 503）
   }
+  mountMiLogin(toast);
 
   // 拉取站点：手动重试部署（Actions 链路偶发 git 超时失败的补救）
   const deployBtn = document.getElementById("btn-deploy");
@@ -1441,3 +1442,142 @@ api("/me")
     renderShell();
   })
   .catch(() => renderLogin());
+
+// ---------- 小米健康凭证部署向导 ----------
+// 状态机：idle(凭证概况) → password(账号密码，可能出图片验证码) → 2fa(短信/邮箱验证码)
+//         → done(凭证已落盘)。免密续期一键完成。密码只在提交请求里，不落任何存储。
+
+function mountMiLogin(toast) {
+  const btn = document.getElementById("btn-mi-login");
+  const dlg = document.getElementById("dlg-mi-login");
+  if (!btn || !dlg) return;
+  btn.hidden = false; // 已配置 MIHEALTH_DB 时显示（后端 status 会兜底提示）
+
+  const $ = (id) => document.getElementById(id);
+  const showStep = (name) => {
+    $("mi-step-cred").hidden = name !== "cred";
+    $("mi-step-2fa").hidden = name !== "2fa";
+    $("mi-step-done").hidden = name !== "done";
+    $("btn-mi-submit").hidden = name === "done";
+    $("btn-mi-refresh").hidden = !(name === "done" || name === "idle");
+    $("btn-mi-submit").textContent = name === "2fa" ? "提交验证码" : "登录";
+  };
+  const showError = (msg) => {
+    const el = $("mi-error");
+    el.hidden = !msg;
+    el.textContent = msg || "";
+  };
+
+  async function refreshStatus() {
+    try {
+      const s = await api("/mi-login/status");
+      const el = $("mi-status");
+      if (!s.configured) {
+        el.textContent = "尚未部署凭证——用小米账号登录一次即可（之后每 1~2 个月点一次免密续期）。";
+        $("mi-done-hint").textContent = "";
+      } else {
+        const age = s.ageDays != null ? `（凭证 ${s.ageDays} 天前更新）` : "";
+        el.textContent = s.hasPassToken
+          ? `凭证已部署${age}，passToken 支持免密续期。`
+          : `凭证已部署${age}，但无 passToken——过期后需重新账号密码登录。`;
+        $("mi-done-hint").textContent = el.textContent;
+      }
+    } catch { /* 静默 */ }
+  }
+
+  // 向导中间态（跨步骤）：登录会话 id / 2FA 上下文
+  let wizard = { loginId: null, context: null, flag: 4 };
+
+  async function submit() {
+    showError("");
+    const submitBtn = $("btn-mi-submit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "请求中…";
+    try {
+      if (!$("mi-step-2fa").hidden) {
+        // 第三步：2FA 验证码
+        const code = $("mi-2fa-code").value.trim();
+        if (!code) throw new Error("请输入验证码");
+        const r = await api("/mi-login/2fa", {
+          method: "POST",
+          body: { loginId: wizard.loginId, code, context: wizard.context, flag: wizard.flag },
+        });
+        toast("凭证部署完成，健康数据页已可用");
+        showStep("done");
+        await refreshStatus();
+        return;
+      }
+      // 第一/二步：账号密码（可能带图片验证码重试）
+      const username = $("mi-user").value.trim();
+      const password = $("mi-pass").value;
+      if (!username || !password) throw new Error("请填写账号与密码");
+      const r = await api("/mi-login/password", {
+        method: "POST",
+        body: {
+          username,
+          password,
+          loginId: wizard.loginId,
+          captcha: $("mi-captcha-row").hidden ? null : $("mi-captcha").value.trim() || null,
+          ick: wizard.ick || null,
+        },
+      });
+      if (r.step === "captcha") {
+        wizard = { loginId: r.loginId, ick: null, context: null, flag: 4 };
+        $("mi-captcha-row").hidden = false;
+        $("mi-captcha-img").src = r.captchaUrl;
+        showError("需要图片验证码：输入后重新点「登录」（账号密码已记住在表单里）");
+        return;
+      }
+      if (r.step === "2fa") {
+        wizard = { loginId: r.loginId, ick: null, context: r.context, flag: r.flag };
+        $("mi-2fa-hint").textContent =
+          r.method === "Email" ? `验证码已发到邮箱（${r.hint || "绑定邮箱"}）` : `验证码已通过短信发到（${r.hint || "绑定手机"}）`;
+        showStep("2fa");
+        return;
+      }
+      toast("登录成功，凭证已部署");
+      showStep("done");
+      await refreshStatus();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = $("mi-step-2fa").hidden ? "登录" : "提交验证码";
+    }
+  }
+
+  async function refreshCreds() {
+    showError("");
+    const btnR = $("btn-mi-refresh");
+    btnR.disabled = true;
+    btnR.textContent = "续期中…";
+    try {
+      await api("/mi-login/refresh", { method: "POST" });
+      toast("免密续期成功");
+      await refreshStatus();
+    } catch (err) {
+      showError(`续期失败：${err.message}（passToken 过期需重新账号密码登录）`);
+    } finally {
+      btnR.disabled = false;
+      btnR.textContent = "⟳ 免密续期";
+    }
+  }
+
+  btn.addEventListener("click", () => {
+    wizard = { loginId: null, ick: null, context: null, flag: 4 };
+    $("mi-captcha-row").hidden = true;
+    $("mi-pass").value = "";
+    $("mi-2fa-code").value = "";
+    showError("");
+    showStep("cred");
+    refreshStatus();
+    dlg.showModal();
+  });
+  dlg.querySelector("[data-mi-cancel]").addEventListener("click", () => dlg.close());
+  $("mi-captcha-img").addEventListener("click", (e) => {
+    // 点击刷新验证码（换 ick 需重开会话，简化为重新拉取同 URL 加时间戳）
+    e.target.src = e.target.src.split("&_ts=")[0] + "&_ts=" + Date.now();
+  });
+  $("btn-mi-submit").addEventListener("click", submit);
+  $("btn-mi-refresh").addEventListener("click", refreshCreds);
+}

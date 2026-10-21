@@ -44,6 +44,7 @@
       <div class="topbar-actions">
         <button class="btn btn-ghost" id="btn-deploy" hidden title="手动拉取站点构建产物（Actions 部署偶发超时失败时的补救）">⇩ 拉取站点</button>
         <button class="btn btn-ghost" id="btn-sync" hidden title="从 GitHub 拉取最新内容到本地镜像">⟳ 同步</button>
+                <button class="btn btn-ghost" id="btn-mi-login" hidden title="部署/续期小米运动健康数据凭证">♥ 健康凭证</button>
         <button class="btn btn-ghost" id="btn-logout">退出</button>
       </div>
     </header>
@@ -239,6 +240,41 @@
 
   <!-- 通用对话框 -->
   <dialog id="dlg"></dialog>
+
+<!-- 小米健康凭证部署向导（独立于编辑器语法对话框） -->
+<dialog id="dlg-mi-login">
+  <div class="dlg-body">
+    <h3 class="dlg-title">小米运动健康 · 凭证部署</h3>
+    <div id="mi-status" class="mi-status"></div>
+    <form id="mi-form" autocomplete="off">
+      <div id="mi-step-cred" class="mi-step">
+        <label class="field"><span class="field-label">小米账号</span>
+          <input type="text" id="mi-user" placeholder="手机号 / 邮箱 / 小米 ID" /></label>
+        <label class="field"><span class="field-label">密码</span>
+          <input type="password" id="mi-pass" placeholder="仅当次登录使用，绝不落盘" /></label>
+        <div id="mi-captcha-row" class="mi-captcha" hidden>
+          <label class="field"><span class="field-label">图片验证码</span>
+            <input type="text" id="mi-captcha" placeholder="输入图中字符" /></label>
+          <img id="mi-captcha-img" alt="验证码" title="点击刷新" />
+        </div>
+      </div>
+      <div id="mi-step-2fa" class="mi-step" hidden>
+        <p class="mi-hint" id="mi-2fa-hint"></p>
+        <label class="field"><span class="field-label">验证码</span>
+          <input type="text" id="mi-2fa-code" inputmode="numeric" placeholder="短信 / 邮箱收到的验证码" /></label>
+      </div>
+      <div id="mi-step-done" class="mi-step" hidden>
+        <p class="mi-hint" id="mi-done-hint"></p>
+      </div>
+      <p class="mi-error" id="mi-error" hidden></p>
+    </form>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" data-mi-cancel>关闭</button>
+      <button type="button" class="btn btn-ghost" id="btn-mi-refresh" hidden>⟳ 免密续期</button>
+      <button type="button" class="btn btn-primary" id="btn-mi-submit">登录</button>
+    </div>
+  </div>
+</dialog>
   <div id="toast-box"></div>
 
   <script src="./vendor/easymde/easymde.min.js"></script>

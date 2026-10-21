@@ -188,12 +188,33 @@ POST   /api/upload           multipart 图片上传（target=post|moment）
 GET /api/health/status     库配置与各数据键覆盖情况（运维排查）
 GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚合)、
                            24h 心率/压力序列(降采样≤240点+统计)、
-                           近 N 晚睡眠摘要+最近一夜分期段；?days=1..30
+                           近 N 晚睡眠摘要(主会话+全部会话)+最近一夜分期段
 ```
 
 - 内存缓存 `MIHEALTH_CACHE_TTL_MS`（默认 10 分钟）；库暂不可用时降级返回上次快照；
 - 每 IP 每分钟 30 次限流；日历日边界按 `SITE_TIMEZONE` 切，与博客时区一致；
+- 统计天数固定 `MIHEALTH_DAYS`（前端零可变参数）；
 - 本地验证：`node scripts/test-mihealth.mjs`（构造 mock 库跑全链路断言）。
+
+### 小米凭证部署向导（需登录）
+
+顶栏「♥ 健康凭证」按钮：在浏览器里完成小米账号登录并部署凭证到
+`MIHEALTH_DB` 同目录 `config.json`（权限 600，与 mihealth-api 完全同构，
+cron 的 `sync.py incremental` 直接使用）。自 mihealth-api `login.py` 移植：
+
+- **账号密码登录**（图片验证码支持，验证码图片点击刷新、会话内重试）；
+- **2FA 双通道**：`identity/list` 的 flag 自动判断手机短信（4）/邮箱（8），
+  手机通道自动 `sendPhoneTicket` 真正下发；
+- **免密续期**：pass_token 有效期内一键换新 serviceToken（日常，1~2 个月一次）；
+- 密码只用于当次登录请求，不落盘、不记日志；落盘的只有 pass_token 等登录态。
+
+```
+GET  /api/mi-login/status    凭证概况（脱敏：是否部署/凭证年龄/有无 passToken）
+POST /api/mi-login/password  第一步：{ username, password, captcha?, ick?, loginId? }
+                             → step: ok | captcha(loginId, captchaUrl) | 2fa(loginId, method, hint, context, flag)
+POST /api/mi-login/2fa       提交 2FA 验证码：{ loginId, code, context, flag }
+POST /api/mi-login/refresh   pass_token 免密续期
+```
 
 ## 安全注意事项
 

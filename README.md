@@ -52,6 +52,9 @@ GITHUB_REPO=blog-content
 GITHUB_BRANCH=main
 SITE_TIMEZONE=Asia/Shanghai
 DEV_MODE=0
+
+# 健康数据页（可选；配置后自动同步，向导上传凭证即可）
+MIHEALTH_DB=/srv/shirone-admin/health-data/mihealth.db
 ```
 
 > `SITE_TIMEZONE` 必须与博客 `config/site.yaml` 的 `timeZone` 一致（默认 `Asia/Shanghai`）。
@@ -199,8 +202,9 @@ GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚�
 - 统计天数固定 `MIHEALTH_DAYS`（前端零可变参数）；
 - 同步键：steps/sleep/heart_rate/stress/spo2/calories（`lib/mihealth-sync.js` 的
   `SYNC_KEYS` 可扩展）；
-- **库体积控制**：`node scripts/prune-mihealth.mjs --db <mihealth.db> --keep-days 7`
-  删除 N 天前行（可选；进程内自动同步不强制需要，库大几百 MB 也只影响磁盘不影响查询速度）；
+- **库体积控制（可选）**：全量历史积累到几百 MB 也只影响磁盘不影响查询速度；需要控制时
+  运行 `node scripts/prune-mihealth.mjs --db <mihealth.db> --keep-days 7`（删除 N 天前行，
+  云端保留全量，凭证在位时下次同步即按需拉回近段）。
 - 本地验证：`node scripts/test-mihealth.mjs`（mock 库快照断言）。
 
 ### 小米凭证部署（需登录）

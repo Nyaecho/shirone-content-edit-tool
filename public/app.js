@@ -1460,7 +1460,7 @@ function mountMiLogin(toast) {
     $("mi-step-done").hidden = name !== "done";
     $("btn-mi-submit").hidden = name === "done";
     $("btn-mi-refresh").hidden = !(name === "done" || name === "idle");
-    $("btn-mi-submit").textContent = name === "2fa" ? "我已完成验证" : "登录";
+    $("btn-mi-submit").textContent = name === "2fa" ? "我已完成验证" : "上传 / 登录";
   };
   const showError = (msg) => {
     const el = $("mi-error");
@@ -1494,6 +1494,22 @@ function mountMiLogin(toast) {
     submitBtn.disabled = true;
     submitBtn.textContent = "请求中…";
     try {
+      // 优先通道：上传凭证 JSON（本机 login.py 生成 config.json 的内容）
+      const credJson = $("mi-cred-json").value.trim();
+      if (credJson) {
+        let parsed;
+        try {
+          parsed = JSON.parse(credJson);
+        } catch {
+          throw new Error("凭证不是合法 JSON——请粘贴完整的 config.json 文件内容");
+        }
+        await api("/mi-login/upload", { method: "POST", body: parsed });
+        toast("凭证上传成功，健康数据页已可用");
+        showStep("done");
+        await refreshStatus();
+        return;
+      }
+      // 备用通道：服务器上直接账号密码登录
       if (!$("mi-step-2fa").hidden) {
         // 第三步：用户已在小米官方验证页完成 → 服务端续接取凭证
         const r = await api("/mi-login/resume", {

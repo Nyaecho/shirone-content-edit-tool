@@ -93,6 +93,40 @@ miLoginRouter.post("/resume", async (req, res) => {
 	}
 });
 
+/** POST /api/mi-login/upload —— 上传凭证文件（mihealth-api login.py 产出的 config.json）。
+ * body: 完整 config.json 内容（ssecurity/service_token/cuser_id/pass_token…）。
+ * 2FA 验证态绑定浏览器 cookie，服务端无法跨客户端续接（实测），故凭证
+ * 部署以「本地 login.py → 上传」为主通道；后续用 /refresh 免密续期即可。 */
+miLoginRouter.post("/upload", async (req, res) => {
+	const cfg = req.body || {};
+	const required = ["ssecurity", "service_token", "cuser_id"];
+	const missing = required.filter((k) => !cfg[k]);
+	if (missing.length) {
+		return res.status(400).json({
+			ok: false,
+			error: `凭证缺少必需字段：${missing.join("、")}（应上传 mihealth-api login.py 生成的完整 config.json）`,
+		});
+	}
+	if (!cfg.pass_token) {
+		// 没有 pass_token 也能用，但无法免密续期——提示而非拒绝
+		console.warn("[mi-login] 上传的凭证无 pass_token，过期后需重新上传");
+	}
+	try {
+		writeCredentials(config.mihealth.db, {
+			ssecurity: cfg.ssecurity,
+			service_token: cfg.service_token,
+			cuser_id: cfg.cuser_id,
+			user_id: cfg.user_id,
+			pass_token: cfg.pass_token,
+			sid: cfg.sid || "miothealth",
+			ts: Math.floor(Date.now() / 1000),
+		});
+		res.json({ ok: true, data: { step: "ok" } });
+	} catch (err) {
+		fail(res, err);
+	}
+});
+
 /** POST /api/mi-login/refresh —— 免密续期（pass_token 换新 serviceToken） */
 miLoginRouter.post("/refresh", async (req, res) => {
 	if (!dbConfigured()) {

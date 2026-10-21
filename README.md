@@ -199,23 +199,27 @@ GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚�
   删除 N 天前行（records + dedup；云端保留全量历史，`sync.py backfill` 随时拉回）。
   cron 与同步串联：`python sync.py incremental && node .../prune-mihealth.mjs --keep-days 7`。
 
-### 小米凭证部署向导（需登录）
+### 小米凭证部署（需登录）
 
-顶栏「♥ 健康凭证」按钮：在浏览器里完成小米账号登录并部署凭证到
-`MIHEALTH_DB` 同目录 `config.json`（权限 600，与 mihealth-api 完全同构，
-cron 的 `sync.py incremental` 直接使用）。自 mihealth-api `login.py` 移植：
+顶栏「♥ 健康凭证」按钮。**推荐通道：本地登录 + 上传**（小米 2FA 验证态绑定
+浏览器 cookie，服务器端无法跨客户端续接，实测 2026-10）：
 
-- **账号密码登录**（图片验证码支持，验证码图片点击刷新、会话内重试）；
-- **2FA 双通道**：`identity/list` 的 flag 自动判断手机短信（4）/邮箱（8），
-  手机通道自动 `sendPhoneTicket` 真正下发；
-- **免密续期**：pass_token 有效期内一键换新 serviceToken（日常，1~2 个月一次）；
-- 密码只用于当次登录请求，不落盘、不记日志；落盘的只有 pass_token 等登录态。
+1. 本机 mihealth-api 目录运行 `python login.py --user <账号> --password <密码>`
+   （或已登录态 `python login.py --refresh`），生成/更新 `config.json`；
+2. 向导里粘贴 config.json **全文** → 「上传 / 登录」→ 凭证写入
+   `MIHEALTH_DB` 同目录 `config.json`（600，与 mihealth-api 同构）；
+3. 日常续期：向导「⟳ 免密续期」一键换新（pass_token 有效期约 1~2 个月），
+   无需再走登录。
+
+备用通道（折叠区）：服务器上直接账号密码登录（图片验证码行内重试；
+2FA 官方页人工验证后 resume——该通道受小米验证态 cookie 绑定限制，
+不保证可用）。
 
 ```
 GET  /api/mi-login/status    凭证概况（脱敏：是否部署/凭证年龄/有无 passToken）
-POST /api/mi-login/password  第一步：{ username, password, captcha?, ick?, loginId? }
-                             → step: ok | captcha(loginId, captchaUrl) | 2fa(loginId, method, hint, context, flag)
-POST /api/mi-login/2fa       提交 2FA 验证码：{ loginId, code, context, flag }
+POST /api/mi-login/upload    上传凭证 JSON（config.json 全文，校验必需字段）
+POST /api/mi-login/password  备用：服务器账号密码登录（captcha/2fa 分步返回）
+POST /api/mi-login/resume    备用：官方页人工验证后服务端续接
 POST /api/mi-login/refresh   pass_token 免密续期
 ```
 

@@ -416,3 +416,8 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 .mi-error { color: var(--error, #b3261e); font-size: 12.5px; margin: 8px 0 0; white-space: pre-wrap; }
 
 .mi-verify-link { display: block; text-align: center; text-decoration: none; margin: 4px 0 8px; }
+
+.mi-alt { margin-top: 10px; font-size: 12.5px; }
+.mi-alt summary { color: var(--on-surface-variant); cursor: pointer; margin-bottom: 8px; }
+.mi-alt .field { margin-top: 8px; }
+.mi-hint code { background: var(--surface-container-high, #eee); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }

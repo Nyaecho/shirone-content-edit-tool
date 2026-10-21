@@ -248,15 +248,23 @@
     <div id="mi-status" class="mi-status"></div>
     <form id="mi-form" autocomplete="off">
       <div id="mi-step-cred" class="mi-step">
-        <label class="field"><span class="field-label">小米账号</span>
-          <input type="text" id="mi-user" placeholder="手机号 / 邮箱 / 小米 ID" /></label>
-        <label class="field"><span class="field-label">密码</span>
-          <input type="password" id="mi-pass" placeholder="仅当次登录使用，绝不落盘" /></label>
-        <div id="mi-captcha-row" class="mi-captcha" hidden>
-          <label class="field"><span class="field-label">图片验证码</span>
-            <input type="text" id="mi-captcha" placeholder="输入图中字符" /></label>
-          <img id="mi-captcha-img" alt="验证码" title="点击刷新" />
-        </div>
+        <p class="mi-hint">推荐：本机运行 <code>python login.py --user 账号 --password 密码</code>
+          （mihealth-api 目录）生成 config.json 后，把文件内容粘贴到下面上传。
+          之后的日常续期用下方「⟳ 免密续期」即可，无需再登录。</p>
+        <label class="field"><span class="field-label">凭证内容（config.json 全文）</span>
+          <textarea id="mi-cred-json" rows="6" placeholder='{"ssecurity": "...", "service_token": "...", "cuser_id": "...", "pass_token": "..."}'></textarea></label>
+        <details class="mi-alt">
+          <summary>或在服务器上直接登录（可能要求安全验证）</summary>
+          <label class="field"><span class="field-label">小米账号</span>
+            <input type="text" id="mi-user" placeholder="手机号 / 邮箱 / 小米 ID" /></label>
+          <label class="field"><span class="field-label">密码</span>
+            <input type="password" id="mi-pass" placeholder="仅当次登录使用，绝不落盘" /></label>
+          <div id="mi-captcha-row" class="mi-captcha" hidden>
+            <label class="field"><span class="field-label">图片验证码</span>
+              <input type="text" id="mi-captcha" placeholder="输入图中字符" /></label>
+            <img id="mi-captcha-img" alt="验证码" title="点击刷新" />
+          </div>
+        </details>
       </div>
       <div id="mi-step-2fa" class="mi-step" hidden>
         <p class="mi-hint">小米要求安全验证。点下方按钮打开小米官方验证页（新标签页），

@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config, validateConfig, isDev } from "./lib/config.js";
 import { router } from "./routes/api.js";
+import { healthRouter } from "./routes/health.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -22,6 +23,9 @@ app.use(express.json({
   },
 }));
 
+// 公开只读健康数据路由（无认证，直读 mihealth SQLite 库；博客 /health/ 页运行时取数）
+// 必须挂在 /api 之前：api router 内部的 requireAuth 才不会拦截 /api/health/*
+app.use("/api/health", healthRouter);
 app.use("/api", router);
 
 // 静态资源
@@ -59,8 +63,11 @@ if (!isDev()) {
   });
 }
 
-app.listen(config.port, () => {
-  console.log(`shirone-admin 已启动: http://localhost:${config.port}`);
+app.listen(config.port, config.host, () => {
+  console.log(`shirone-admin 已启动: http://${config.host}:${config.port}`);
+  if (config.host === "127.0.0.1" || config.host === "localhost") {
+  	console.log("监听: 仅本地回环；公网经 nginx 反代访问（如 域名/blog-admin/ → 本服务，前缀由反代剥离）");
+  }
   console.log(`模式: ${isDev() ? "DEV（本地验证：保存触发下载）" : "PROD（推送 GitHub）"}`);
   if (isDev()) console.log(`内容仓: ${config.dev.contentDir}`);
   else console.log(`内容仓: ${config.github.owner}/${config.github.repo}@${config.github.branch}`);

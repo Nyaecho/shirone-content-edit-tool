@@ -316,9 +316,9 @@ export function mountDialogs({ toast }) {
     },
 
     imageGrid(editor, { images = [] } = {}) {
-      // 缩略图走 /api/asset 代理（admin 域名下没有站点静态资源）
+      // 缩略图走 api/asset 代理（相对路径叠加，反代子路径下同样成立）
       const assetUrl = (img) =>
-        `/api/asset?path=${encodeURIComponent(img.repoPath || (String(img.src || "").startsWith("/") ? `public${String(img.src).split("?")[0]}` : img.src || ""))}`;
+        `api/asset?path=${encodeURIComponent(img.repoPath || (String(img.src || "").startsWith("/") ? `public${String(img.src).split("?")[0]}` : img.src || ""))}`;
       const checkboxes = images.length
         ? images
             .map(

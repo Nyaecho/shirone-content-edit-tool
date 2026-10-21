@@ -74,28 +74,22 @@ sudo systemctl enable --now shirone-admin
 
 ### 5. 反向代理（HTTPS 建议）
 
-工具的 Cookie 在检测到 `x-forwarded-proto: https` 时自动追加 `Secure`。以 Caddy 为例：
+服务默认只监听 `127.0.0.1`（`HOST=127.0.0.1`），公网一律经同机 nginx 反代访问。
+前端已全量相对路径化，可挂在任意子路径下（前缀由反代剥离，管理平台无感知）：
 
 ```
-admin.example.com {
-    reverse_proxy localhost:3777
+# 博客域下挂 /blog-admin/（与博客、健康数据接口同域，不暴露独立服务器地址）
+location /blog-admin/ {
+    proxy_pass http://127.0.0.1:3777/;   # 末尾斜杠 = 剥离前缀
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
 }
 ```
 
-nginx 参考：
+- 管理平台：`https://<博客域名>/blog-admin/`
+- 健康数据（博客 /health/ 页运行时取数）：`https://<博客域名>/blog-admin/api/health/snapshot`
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name admin.example.com;
-    location / {
-        proxy_pass http://127.0.0.1:3777;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
+Cookie 在 HTTPS 反代下自动追加 `Secure`（检测 `x-forwarded-proto`）。
 ## 目录约定
 
 | 内容 | 仓库路径 | 引用方式 |
@@ -184,6 +178,22 @@ PUT    /api/moments/:id
 DELETE /api/moments/:id
 POST   /api/upload           multipart 图片上传（target=post|moment）
 ```
+
+### 健康数据代理（公开只读，无需登录）
+
+博客静态页 `/health/` 的运行时数据源。直读 mihealth-api 项目 `sync.py`
+同步产出的 SQLite 库（`MIHEALTH_DB` 指定路径，只读打开），不代理任何小米原始接口。
+
+```
+GET /api/health/status     库配置与各数据键覆盖情况（运维排查）
+GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚合)、
+                           24h 心率/压力序列(降采样≤240点+统计)、
+                           近 N 晚睡眠摘要+最近一夜分期段；?days=1..30
+```
+
+- 内存缓存 `MIHEALTH_CACHE_TTL_MS`（默认 10 分钟）；库暂不可用时降级返回上次快照；
+- 每 IP 每分钟 30 次限流；日历日边界按 `SITE_TIMEZONE` 切，与博客时区一致；
+- 本地验证：`node scripts/test-mihealth.mjs`（构造 mock 库跑全链路断言）。
 
 ## 安全注意事项
 

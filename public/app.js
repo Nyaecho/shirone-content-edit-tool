@@ -25,8 +25,10 @@ let timelineCategories = [];
 
 // ---------- API ----------
 
+// 相对路径发请求：经反向代理挂在任意子路径（如 域名/blog-admin/）时，
+// 从浏览器当前 URL 叠加（/blog-admin/ + api/xxx），无需感知前缀。
 async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`api${path}`, {
     headers: options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : undefined,
     ...options,
     body: options.body instanceof FormData || typeof options.body === "string" ? options.body : options.body ? JSON.stringify(options.body) : undefined,
@@ -1243,9 +1245,10 @@ function qs(sel) {
   return document.querySelector(sel);
 }
 
-/** 仓库路径/web 路径 → 可预览的 URL（admin 域名下的图片代理，带 Cookie 认证） */
+/** 仓库路径/web 路径 → 可预览的 URL（admin 下的图片代理，带 Cookie 认证）。
+ *  相对路径叠加当前浏览器 URL，反向代理挂在子路径（如 /blog-admin/）时同样成立。 */
 function assetUrl(repoPath) {
-  return `/api/asset?path=${encodeURIComponent(repoPath)}`;
+  return `api/asset?path=${encodeURIComponent(repoPath)}`;
 }
 
 function esc(s) {

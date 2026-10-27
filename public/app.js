@@ -1,30 +1,34 @@
 /**
- * shirone-admin 前端应用（vanilla ESM，零构建）。
- * 视图：登录 / 文章列表 / 动态列表 / 文章编辑器 / 动态编辑器。
- * DEV 模式下保存动作接收 .md / .zip 下载响应。
+ * shirone-admin 前端应用（vanilla ESM，零构建）——视图层主体。
+ * 职责：登录/主框架/三列表/三编辑器；基础设施已拆分至独立模块：
+ *   - api-client.js  请求与 toast
+ *   - state.js       全局运行时状态
+ *   - utils.js       DOM/转义/slug/资源 URL 等纯工具
+ *   - tags.js        标签与分类候选
+ *   - uploads.js     图片上传链路与封面组件
+ *   - pin-bottom.js  卡片钉底控制器
+ *   - autosave.js / inline-images.js / ext-preview.js / moods.js（此前已拆）
  */
 import { mountDialogs } from "./dialogs.js";
 import { AutosaveController, restoreDraft } from "./autosave.js";
 import { attachInlineImages } from "./inline-images.js";
 import { renderExtendedSyntax } from "./ext-preview.js";
+import { MOODS, moodSvg } from "./moods.js";
+import { qs, esc, assetUrl, suggestSlug, suggestSuffix, triggerDownload, wrapInline, insertBlock } from "./utils.js";
+import { api, toast } from "./api-client.js";
+import { state, timelineData } from "./state.js";
+import { loadTaxonomies, fillCategoryOptions, drawTagSuggestions, addTag, drawTags } from "./tags.js";
+import { handleUploadFiles, drawMomentImages, drawUploadList, setupEditorDrop, setupEditorPaste, renderCoverState, setupCoverUpload } from "./uploads.js";
+import { setupCardPinBottom } from "./pin-bottom.js";
 
 // 对话框注册表（启动时挂载）
 let DIALOGS = {};
 
 const $app = document.getElementById("app");
-const state = {
-  devMode: false,
-  view: "posts",
-  tags: { post: [], moment: [] },
-  current: { post: null, moment: null, timeline: null },
-  editors: {},
-  momentImages: [],
-  taxonomies: null, // { tags: [{name,posts,moments,total}], categories: [{name,count}] }，null = 未加载
-};
 
-// 时间线：全量节点 + 分类（GET /timeline 一次拉齐；编辑靠快照定位，不单独拉详情）
-let timelineCache = [];
-let timelineCategories = [];
+// 时间线数据（state.js 的 timelineData：cache + categories，保持本地别名兼容既有代码）
+const timelineCache = timelineData.cache;
+const timelineCategories = timelineData.categories;
 
 // ---------- Ctrl/Cmd+S 保存快捷键（document 级兜底，含 EasyMDE 外的 textarea/表单场景） ----------
 function saveShortcutHandler(e) {
@@ -47,38 +51,7 @@ function saveShortcutHandler(e) {
 let saveShortcutBound = false; // renderShell 可重复调用，防重复注册
 
 // ---------- API ----------
-
-// 相对路径发请求：经反向代理挂在任意子路径（如 域名/blog-admin/）时，
-// 从浏览器当前 URL 叠加（/blog-admin/ + api/xxx），无需感知前缀。
-async function api(path, options = {}) {
-  const res = await fetch(`api${path}`, {
-    headers: options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : undefined,
-    ...options,
-    body: options.body instanceof FormData || typeof options.body === "string" ? options.body : options.body ? JSON.stringify(options.body) : undefined,
-  });
-  const contentType = res.headers.get("Content-Type") || "";
-  if (contentType.includes("text/markdown") || contentType.includes("application/zip")) {
-    return { download: res, filename: res.headers.get("X-Suggested-Filename") || "download.md" };
-  }
-  // 非 JSON 响应（如反代/WAF 拦截页、路由 404 的 HTML）直接报状态码，避免误导性的"响应解析失败"
-  if (!contentType.includes("application/json")) {
-    throw new Error(`请求失败（${res.status}，非 JSON 响应——检查路径或反向代理）`);
-  }
-  const json = await res.json().catch(() => ({ ok: false, error: `响应解析失败（${res.status}）` }));
-  if (!res.ok || json.ok === false) {
-    throw new Error(json.error || `请求失败（${res.status}）`);
-  }
-  return json.data;
-}
-
-function toast(msg, isErr = false) {
-  const box = document.getElementById("toast-box");
-  const el = document.createElement("div");
-  el.className = `toast${isErr ? " err" : ""}`;
-  el.textContent = msg;
-  box.appendChild(el);
-  setTimeout(() => el.remove(), 3600);
-}
+// 已拆分至 api-client.js（api / toast）
 
 // ---------- 登录 ----------
 
@@ -1023,7 +996,7 @@ async function openPostEditor(slug) {
         name: "highlight",
         action: wrapInline("==", "=="),
         title: "荧光高亮",
-        className: "fa fa-highlighter",
+        className: "fa fa-magic", // FA4 无 fa-highlighter（FA5 名），用魔法棒替代
       },
       {
         name: "spoiler",
@@ -1041,7 +1014,7 @@ async function openPostEditor(slug) {
         name: "mermaid",
         action: insertBlock("```mermaid\nflowchart LR\n    A[开始] --> B[结束]\n```"),
         title: "Mermaid 图表",
-        className: "fa fa-project-diagram",
+        className: "fa fa-sitemap", // FA4 无 fa-project-diagram（FA5 名），用站点地图替代
       },
       {
         name: "math-block",
@@ -1053,6 +1026,17 @@ async function openPostEditor(slug) {
     ],
   });
   state.editors.post = mde;
+
+  // 预览入口显眼化：给预览/分屏按钮追加文字标签（纯图标难以发现）
+  for (const [key, text] of [["preview", "预览"], ["side-by-side", "分屏"]]) {
+    const btn = mde.toolbarElements?.[key];
+    if (btn && !btn.querySelector(".tb-text")) {
+      const label = document.createElement("span");
+      label.className = "tb-text";
+      label.textContent = text;
+      btn.appendChild(label);
+    }
+  }
 
   // 行内图片：图片引用行下方挂缩略图（src 解析与 rewritePreviewImages 同套规则）
   const inlineImages = attachInlineImages(mde, {
@@ -1099,7 +1083,10 @@ async function openPostEditor(slug) {
   // ---- 自动保存：恢复较新暂存 + 输入标脏 ----
   if (autosave) {
     const snap = await restoreDraft("post", autosaveId());
-    if (snap && (isNew || snap.savedAt > (post.frontmatter?.updatedAt || post.frontmatter?.publishedAt || ""))) {
+    // 版本对比（乐观锁语义）：暂存记录保存时的文件 sha 与当前一致才恢复。
+    // 修复：老文章无 updatedAt/publishedAt 时旧时间比较恒真，空暂存覆盖标题/分类/草稿勾选
+    const snapIsCurrent = snap && snap.baseSha != null && snap.baseSha === post.sha;
+    if (snapIsCurrent) {
       // 暂存比仓库新：回填表单 + 横幅提示
       qs("#pe-title").value = snap.form?.title || "";
       if (isNew) qs("#pe-slug").value = snap.form?.slug || "";
@@ -1141,79 +1128,6 @@ async function openPostEditor(slug) {
 
   // 左栏钉底：元信息卡底部到达视口底时固定（正文继续滚）；单列布局（含移动端）自动禁用
   setupCardPinBottom(".editor-meta", ".editor-grid");
-}
-
-/**
- * 卡片钉底控制器（设计语言统一：文章左栏 / 动态表单卡 / 时间线表单卡同款）：
- * - 卡片随页面滚动；底部到达视口底时 translateY 钉住（后续内容继续滚）
- * - 位移上限 = 参照容器高 - 卡片高（滚到页尾随内容离开，不悬空）
- * - Chrome 系 grid/flex item 的 sticky bottom 不生效（已知 bug），故 JS 实现；
- *   原生 sticky 生效的浏览器自动跳过接管
- * - 单列布局（≤960px，含移动端）：卡片与正文同列，钉住会遮正文——禁用
- * @param cardSel 卡片选择器；boundSel 钉底范围参照（通常是卡片所在的容器）
- */
-function setupCardPinBottom(cardSel, boundSel) {
-  const card = qs(cardSel);
-  const bound = qs(boundSel);
-  if (!card || !bound) return;
-
-  // 单列布局禁用（含移动端：所有卡片纵排，固定反而突兀）
-  const singleCol = () => window.matchMedia("(max-width: 960px)").matches;
-
-  let raf = null;
-  const update = () => {
-    raf = null;
-    if (singleCol()) {
-      card.style.transform = "";
-      card.classList.remove("pin-bottom");
-      return;
-    }
-    const vh = window.innerHeight;
-    const dyMax = bound.offsetHeight - card.offsetHeight;
-    if (dyMax <= 0) {
-      card.style.transform = "";
-      card.classList.remove("pin-bottom");
-      return;
-    }
-    // 自然文档位置底部（offsetTop 不含 transform）
-    const naturalBottom = card.offsetTop + card.offsetHeight;
-    const dy = Math.max(0, Math.min(window.scrollY + vh - naturalBottom, dyMax));
-    if (dy > 0) {
-      card.classList.add("pin-bottom");
-      card.style.transform = `translateY(${dy}px)`;
-    } else {
-      card.classList.remove("pin-bottom");
-      card.style.transform = "";
-    }
-  };
-  const onScroll = () => {
-    if (raf == null) raf = requestAnimationFrame(update);
-  };
-  window.addEventListener("scroll", onScroll, { passive: true });
-  window.addEventListener("resize", onScroll);
-  update();
-
-  // 卸载清理（返回/保存/删除后 main 重绘）
-  const teardown = () => {
-    window.removeEventListener("scroll", onScroll);
-    window.removeEventListener("resize", onScroll);
-    if (raf != null) cancelAnimationFrame(raf);
-    card.style.transform = "";
-    card.classList.remove("pin-bottom");
-  };
-  for (const sel of ["#btn-back", "#btn-save-post", "#btn-save-moment", "#btn-save-timeline",
-    "#btn-delete-post", "#btn-delete-moment", "#btn-delete-timeline"]) {
-    qs(sel)?.addEventListener("click", teardown, { once: true });
-  }
-  // 兜底：main 被整体重绘（其它路径导航）时元素已从 DOM 移除，监听器成孤儿——
-  // 用 MutationObserver 检测卡片脱离文档即自动 teardown
-  const mo = new MutationObserver(() => {
-    if (!card.isConnected) {
-      mo.disconnect();
-      teardown();
-    }
-  });
-  mo.observe(document.getElementById("main"), { childList: true, subtree: true });
 }
 
 function collectPostForm() {
@@ -1273,13 +1187,7 @@ async function savePost(isNew) {
 
 // ---------- 动态编辑器 ----------
 
-const MOODS = [
-  { icon: "material-symbols:sentiment-satisfied-outline-rounded", label: "开心" },
-  { icon: "material-symbols:sentiment-excited-outline-rounded", label: "兴奋" },
-  { icon: "material-symbols:sentiment-neutral-outline-rounded", label: "专注" },
-  { icon: "material-symbols:sentiment-sad-outline-rounded", label: "疲惫" },
-  { icon: "material-symbols:lightbulb-outline-rounded", label: "灵感" },
-];
+// 心情清单与 SVG 图标见 moods.js（UI 用内联 SVG；frontmatter 存 iconify 名）
 
 async function openMomentEditor(id) {
   const main = document.getElementById("main");
@@ -1337,7 +1245,7 @@ async function openMomentEditor(id) {
   qs("#me-draft").addEventListener("change", syncMomentSaveBtn);
   syncMomentSaveBtn();
 
-  // 心情选择
+  // 心情选择（内联 SVG 表情，hover 提示文字；选中存 iconify 名）
   const moodRow = qs("#me-moods");
   moodRow.innerHTML = "";
   for (const m of MOODS) {
@@ -1345,8 +1253,8 @@ async function openMomentEditor(id) {
     btn.type = "button";
     btn.className = "mood-btn";
     btn.title = m.label;
-    // 心情用首字做 UI 显示（存 iconify 名进 frontmatter，与站点渲染一致）
-    btn.textContent = m.label.slice(0, 1);
+    btn.setAttribute("aria-label", m.label);
+    btn.appendChild(moodSvg(m));
     btn.dataset.icon = m.icon;
     if (fm.mood === m.icon) btn.classList.add("active");
     btn.addEventListener("click", () => {
@@ -1437,25 +1345,6 @@ function selectedMood() {
   return active ? active.dataset.icon : "";
 }
 
-function drawMomentImages() {
-  const grid = qs("#me-image-grid");
-  grid.innerHTML = "";
-  state.momentImages.forEach((img, idx) => {
-    const cell = document.createElement("div");
-    cell.className = "mi-cell";
-    // src 为站点根路径（/images/albums/...）→ 转仓库路径走代理预览
-    const repoPath = String(img.src || "").startsWith("/")
-      ? `public${String(img.src).split("?")[0]}`
-      : String(img.src || "");
-    cell.innerHTML = `<img src="${assetUrl(repoPath)}" alt="${esc(img.alt || "")}" loading="lazy" />
-      <button type="button" class="mi-remove" title="移除">×</button>`;
-    cell.querySelector(".mi-remove").addEventListener("click", () => {
-      state.momentImages.splice(idx, 1);
-      drawMomentImages();
-    });
-    grid.appendChild(cell);
-  });
-}
 
 async function saveMoment(isNew) {
   const form = {
@@ -1498,190 +1387,6 @@ async function saveMoment(isNew) {
   }
 }
 
-// ---------- 图片上传（编辑器拖拽 / 按钮） ----------
-
-function momentDateForUpload() {
-  // 动态图片目录日期：新建用今天，编辑用原 published 前 10 位
-  const current = state.current.moment?.frontmatter?.published;
-  if (typeof current === "string" && /^\d{4}-\d{2}-\d{2}/.test(current)) return current.slice(0, 10);
-  return new Date().toISOString().slice(0, 10);
-}
-
-function handleUploadFiles(fileList, target) {
-  for (const file of fileList) {
-    uploadOne(file, target);
-  }
-}
-
-async function uploadOne(file, target) {
-  const listEl = target === "post" ? qs("#pe-upload-list") : qs("#me-upload-list");
-  const item = document.createElement("span");
-  item.className = "upload-item";
-  item.textContent = `上传中 ${file.name}…`;
-  listEl.appendChild(item);
-
-  try {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("target", target);
-    // 草稿与发布同一存储：图片始终直推仓库，无需区分草稿状态
-    if (target === "post") fd.append("slug", qs("#pe-slug").value.trim());
-    else fd.append("momentDate", momentDateForUpload());
-
-    const data = await api("/upload", { method: "POST", body: fd });
-    // 成功后移除文字状态项，缩略图卡片即反馈
-    item.remove();
-
-    if (target === "post") {
-      // 记录到已传图清单 + 在光标处插入引用
-      state.current.post.images.push({ repoPath: data.repoPath, webPath: data.webPath, name: data.filename });
-      insertAtCursor(state.editors.post, `\n${data.markdownRef}\n`);
-      drawUploadList();
-    } else {
-      state.momentImages.push({ src: data.webPath, alt: data.filename });
-      drawMomentImages();
-    }
-  } catch (err) {
-    item.textContent = `失败 ${file.name}: ${err.message}`;
-    item.classList.add("fail");
-  }
-}
-
-// ---------- 封面图上传（固定 cover.<ext>，覆盖式） ----------
-
-/** 封面引用 → 可预览 URL（相对 ./cover.xx 走 asset 代理；外链原样；无封面 null） */
-function coverPreviewUrl(ref, slug) {
-  if (!ref) return null;
-  if (/^(https?:|data:|blob:)/i.test(ref)) return ref; // 外链
-  const name = ref.startsWith("./") ? ref.slice(2) : ref;
-  return assetUrl(`content/posts/${slug}/${name}`);
-}
-
-/**
- * 渲染封面组件状态：无封面 = 「点击上传」；有封面 = 缩略图 + 「重新上传」。
- * ref 为空字符串时回到初始态（外链封面仅展示，同样支持重传覆盖）。
- */
-function renderCoverState(ref, slug) {
-  const btn = qs("#btn-upload-cover");
-  const thumb = qs("#pe-cover-thumb");
-  const hint = qs("#pe-cover-hint");
-  if (!btn || !thumb) return;
-  const url = coverPreviewUrl(ref, slug);
-  if (url) {
-    thumb.src = url;
-    thumb.hidden = false;
-    btn.textContent = "重新上传";
-    if (hint) hint.textContent = "再次上传将覆盖当前封面";
-  } else {
-    thumb.hidden = true;
-    thumb.removeAttribute("src");
-    btn.textContent = "点击上传";
-    if (hint) hint.textContent = "固定 cover 文件名，重复上传覆盖";
-  }
-}
-
-/** 绑定封面上传交互：选文件 → POST /upload(target=cover) → 缩略图 + 联动自动保存 */
-function setupCoverUpload({ getSlug, onSaved }) {
-  const btn = qs("#btn-upload-cover");
-  const fileInput = qs("#pe-cover-file");
-  if (!btn || !fileInput) return;
-
-  btn.addEventListener("click", () => {
-    const slug = getSlug();
-    if (!slug) {
-      toast("请先填写 Slug 再上传封面（图片存文章目录）", true);
-      return;
-    }
-    fileInput.click();
-  });
-
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files?.[0];
-    fileInput.value = ""; // 允许连续选同一文件重传
-    if (!file) return;
-    const slug = getSlug();
-    if (!slug) {
-      toast("请先填写 Slug 再上传封面", true);
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = "上传中…";
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("target", "cover");
-      fd.append("slug", slug);
-      const data = await api("/upload", { method: "POST", body: fd });
-      // 相对引用（./cover.webp）与正文图片同口径
-      const name = data.repoPath.split("/").pop();
-      const ref = `./${name}`;
-      renderCoverState(ref, slug);
-      onSaved?.(ref);
-      toast("封面已上传（保存时随文章推送）");
-    } catch (err) {
-      toast(`封面上传失败：${err.message}`, true);
-    } finally {
-      btn.disabled = false;
-      // 按当前值重渲染（成功=重新上传；失败=保持原状态），不恢复旧文案
-      renderCoverState(qs("#pe-image").value || "", slug);
-    }
-  });
-}
-
-/**
- * 文章已传图清单：缩略图 + 文件名 + 复制引用/删除。
- * 上传成功即时插入（uploadOne），重开编辑器时由 openPostEditor 调用回填。
- */
-function drawUploadList() {
-  const listEl = qs("#pe-upload-list");
-  if (!listEl) return;
-  const images = state.current.post?.images || [];
-  listEl.innerHTML = "";
-  if (!images.length) return;
-  for (const img of images) {
-    const cell = document.createElement("div");
-    cell.className = "uploaded-image";
-    cell.innerHTML = `
-      <img src="${assetUrl(img.repoPath)}" alt="${esc(img.name || "")}" loading="lazy" />
-      <div class="ui-actions">
-        <button type="button" class="ui-btn" data-act="insert" title="在光标处插入引用">插入</button>
-        <button type="button" class="ui-btn ui-btn-danger" data-act="remove" title="从清单移除（不删除仓库文件）">移除</button>
-      </div>
-      <span class="ui-name" title="${esc(img.repoPath)}">${esc(img.name || "")}</span>`;
-    cell.querySelector('[data-act="insert"]').addEventListener("click", () => {
-      insertAtCursor(state.editors.post, `\n![${img.name}](./${img.name})\n`);
-    });
-    cell.querySelector('[data-act="remove"]').addEventListener("click", () => {
-      const cur = state.current.post;
-      cur.images = cur.images.filter((i) => i.repoPath !== img.repoPath);
-      drawUploadList();
-    });
-    listEl.appendChild(cell);
-  }
-}
-
-function setupEditorDrop(mde, target) {
-  const wrapper = mde.codemirror.getWrapperElement();
-  wrapper.addEventListener("drop", (e) => {
-    const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith("image/"));
-    if (files.length) {
-      e.preventDefault();
-      e.stopPropagation();
-      for (const f of files) uploadOne(f, target);
-    }
-  });
-}
-
-function setupEditorPaste(mde, target) {
-  mde.codemirror.on("paste", (cm, e) => {
-    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
-    if (files.length) {
-      e.preventDefault();
-      for (const f of files) uploadOne(f, target);
-    }
-  });
-}
-
 // ---------- 删除 ----------
 
 async function deleteContent(kind, id) {
@@ -1696,243 +1401,6 @@ async function deleteContent(kind, id) {
   } catch (err) {
     toast(err.message, true);
   }
-}
-
-// ---------- 工具 ----------
-
-function qs(sel) {
-  return document.querySelector(sel);
-}
-
-/** 仓库路径/web 路径 → 可预览的 URL（admin 下的图片代理，带 Cookie 认证）。
- *  相对路径叠加当前浏览器 URL，反向代理挂在子路径（如 /blog-admin/）时同样成立。 */
-function assetUrl(repoPath) {
-  return `api/asset?path=${encodeURIComponent(repoPath)}`;
-}
-
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-// ---------- 标签（手动输入 + 已有标签快速复用） ----------
-
-/** 拉取仓库聚合的标签/分类（失败静默：候选区不显示即可，不影响手动输入） */
-async function loadTaxonomies() {
-  try {
-    state.taxonomies = await api("/taxonomies");
-  } catch {
-    state.taxonomies = null;
-  }
-}
-
-/**
- * 文章分类自绘候选区（取代原生 datalist——移动端内部控件体验差且样式失控）：
- * - 输入过滤：键入时只显示匹配项（可完全自定义新分类，候选仅辅助）
- * - 点击填入；已填项再点 = 清除
- * - 候选为空（首次使用）时隐藏，不占空间
- */
-function fillCategoryOptions() {
-  const box = qs("#pe-cat-suggest");
-  const input = qs("#pe-category");
-  if (!box || !input) return;
-
-  const render = () => {
-    const all = state.taxonomies?.categories || [];
-    if (!all.length) {
-      box.hidden = true;
-      box.innerHTML = "";
-      return;
-    }
-    const q = input.value.trim().toLowerCase();
-    // 已填的分类排前（可一键清除），其余按文章数降序；输入时只留匹配项
-    const items = [...all]
-      .sort((a, b) => b.count - a.count)
-      .filter((c) => !q || c.name.toLowerCase().includes(q))
-      .slice(0, 12);
-    if (!items.length) {
-      box.hidden = true;
-      box.innerHTML = "";
-      return;
-    }
-    box.hidden = false;
-    box.innerHTML = "";
-    const label = document.createElement("span");
-    label.className = "tag-suggest-label";
-    label.textContent = "已有分类";
-    box.appendChild(label);
-    for (const c of items) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "tag-suggest-chip cat-chip";
-      chip.title = c.count > 0 ? `${c.count} 篇文章` : "点击填入";
-      const active = c.name === input.value.trim();
-      if (active) chip.classList.add("cat-chip-active");
-      chip.innerHTML = `${esc(c.name)}<span class="tag-suggest-count">${c.count}</span>`;
-      chip.addEventListener("click", () => {
-        input.value = active ? "" : c.name; // 再点清除
-        render();
-        input.dispatchEvent(new Event("input", { bubbles: true })); // 触发自动保存标脏
-      });
-      box.appendChild(chip);
-    }
-  };
-
-  input.addEventListener("input", render);
-  input.addEventListener("focus", render);
-  render();
-}
-
-/**
- * 绘制“已有标签”候选区：点击即添加；输入实时过滤。
- * kind: "post" | "moment"；post 过滤出文章标签（moments>0 也展示但排后），moment 同理。
- */
-function drawTagSuggestions(kind) {
-  const box = qs(kind === "post" ? "#pe-tag-suggest" : "#me-tag-suggest");
-  if (!box) return;
-  const input = qs(kind === "post" ? "#pe-tags" : "#me-tags");
-  const all = state.taxonomies?.tags || [];
-  if (!all.length) {
-    box.hidden = true;
-    box.innerHTML = "";
-    return;
-  }
-
-  // 当前内容类型优先展示该类型用过的标签，另一类型的排后
-  const scoped = [...all].sort((a, b) => {
-    const av = kind === "post" ? a.posts : a.moments;
-    const bv = kind === "post" ? b.posts : b.moments;
-    return (bv > 0) - (av > 0);
-  });
-
-  const render = () => {
-    const q = input.value.trim().replace(/^#/, "").toLowerCase();
-    const selected = state.tags[kind].map((t) => t.toLowerCase());
-    const items = scoped.filter((t) => !selected.includes(t.name.toLowerCase())).filter((t) => !q || t.name.toLowerCase().includes(q));
-    if (!items.length) {
-      box.hidden = true;
-      box.innerHTML = "";
-      return;
-    }
-    box.hidden = false;
-    box.innerHTML = "";
-    const label = document.createElement("span");
-    label.className = "tag-suggest-label";
-    label.textContent = "已有标签";
-    box.appendChild(label);
-    const max = 30; // 最多展示 30 个，避免刷屏
-    for (const t of items.slice(0, max)) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "tag-suggest-chip";
-      chip.title = `文章 ${t.posts} 篇 · 动态 ${t.moments} 条`;
-      chip.innerHTML = `#${esc(t.name)}<span class="tag-suggest-count">${t.total}</span>`;
-      chip.addEventListener("click", () => {
-        addTag(kind, t.name);
-        input.value = "";
-        render();
-      });
-      box.appendChild(chip);
-    }
-    if (items.length > max) {
-      const more = document.createElement("span");
-      more.className = "tag-suggest-more";
-      more.textContent = `还有 ${items.length - max} 个，输入关键词过滤`;
-      box.appendChild(more);
-    }
-  };
-
-  render();
-  input.oninput = () => render();
-}
-
-/** 添加标签：大小写不敏感去重（复用已有写法），成功返回 true */
-function addTag(kind, name) {
-  const val = String(name).trim().replace(/^#/, "");
-  if (!val) return false;
-  const exists = state.tags[kind].some((t) => t.toLowerCase() === val.toLowerCase());
-  if (exists) return false;
-  // 复用已有标签时保留仓库中的原始写法（如 React 而非 react）
-  const known = (state.taxonomies?.tags || []).find((t) => t.name.toLowerCase() === val.toLowerCase());
-  state.tags[kind].push(known ? known.name : val);
-  drawTags(kind);
-  return true;
-}
-
-function drawTags(kind) {
-  const box = qs(kind === "post" ? "#pe-tag-box" : "#me-tag-box");
-  const input = qs(kind === "post" ? "#pe-tags" : "#me-tags");
-  box.innerHTML = "";
-  for (const tag of state.tags[kind]) {
-    const chip = document.createElement("span");
-    chip.className = "tag-chip";
-    chip.innerHTML = `#${esc(tag)} <button type="button" title="移除">×</button>`;
-    chip.querySelector("button").addEventListener("click", () => {
-      state.tags[kind] = state.tags[kind].filter((t) => t !== tag);
-      drawTags(kind);
-      drawTagSuggestions(kind); // 移除后该标签重新回到候选区
-    });
-    box.appendChild(chip);
-  }
-  input.onkeydown = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addTag(kind, input.value);
-      input.value = "";
-      drawTagSuggestions(kind); // 已选集合变化，重新过滤候选区
-    }
-  };
-}
-
-function insertAtCursor(mde, text) {
-  const cm = mde.codemirror;
-  const pos = cm.getCursor();
-  cm.replaceRange(text, pos);
-  cm.focus();
-}
-
-function wrapInline(before, after) {
-  return (editor) => {
-    const cm = editor.codemirror;
-    const selected = cm.getSelection();
-    cm.replaceSelection(`${before}${selected || "文本"}${after}`);
-    cm.focus();
-  };
-}
-
-function insertBlock(text) {
-  return (editor) => {
-    const cm = editor.codemirror;
-    const cursor = cm.getCursor();
-    cm.replaceSelection(`\n${text}\n`);
-    cm.setCursor({ line: cursor.line + 1, ch: 0 });
-    cm.focus();
-  };
-}
-
-/** 中文标题 → slug 建议（非 ASCII 字符折叠为连字符） */
-function suggestSlug(title) {
-  return String(title)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "post";
-}
-
-function suggestSuffix(text) {
-  return suggestSlug(text);
-}
-
-/** 触发浏览器下载 */
-async function triggerDownload(res, filename) {
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 // ---------- 启动 ----------

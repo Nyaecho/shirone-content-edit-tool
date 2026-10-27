@@ -405,6 +405,12 @@ body {
 
 .upload-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; color: var(--on-surface-variant); flex-wrap: wrap; }
 
+/* 预览/分屏按钮的文字标签（纯图标难以发现入口） */
+.editor-toolbar button .tb-text {
+  font-size: 12px; font-weight: 600; margin-left: 4px;
+  font-family: inherit;
+}
+
 /* ---------- 封面图上传组件（覆盖式：固定 cover.<ext>） ---------- */
 .cover-upload { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
 .cover-btn { width: 100%; justify-content: center; }
@@ -541,11 +547,14 @@ body {
 .mood-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .mood-btn {
   min-width: 40px; min-height: 40px; border-radius: 999px; border: 1px solid var(--outline);
-  background: var(--surface); cursor: pointer; font-size: 18px;
+  background: var(--surface); cursor: pointer; font-size: 18px; color: var(--on-surface-variant);
   display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0; /* 防挤压：不参与收缩 */
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s;
 }
-.mood-btn.active { background: var(--primary-container); border-color: var(--primary); }
+.mood-btn:hover { border-color: var(--primary); color: var(--primary); transform: scale(1.06); }
+.mood-btn .mood-svg { display: inline-flex; }
+.mood-btn.active { background: var(--primary-container); border-color: var(--primary); color: var(--on-primary-container); }
 .moment-images-head { display: flex; align-items: center; gap: 12px; }
 .moment-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .mi-cell { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--outline-variant); }

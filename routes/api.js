@@ -22,6 +22,7 @@ import { getImage } from "../lib/image-staging.js";
 import * as store from "../lib/store.js";
 import { invalidateCache as invalidateTaxonomies } from "../services/taxonomy.js";
 import { deployEnabled, verifySignature, acceptDeploy, getTicketState, manualDeploy } from "../lib/deploy.js";
+import * as staging from "../lib/staging.js";
 import JSZip from "jszip";
 import crypto from "node:crypto";
 
@@ -180,6 +181,54 @@ router.get("/taxonomies", async (req, res) => {
   }
 });
 
+// ---------- 服务器暂存层（自动保存：不推 GitHub，多端续写防丢文本） ----------
+
+/** 列出各类型暂存摘要（前端合并列表角标用） */
+router.get("/drafts", async (req, res) => {
+  try {
+    const [posts, moments, timeline] = await Promise.all([
+      staging.listDrafts("post"),
+      staging.listDrafts("moment"),
+      staging.listDrafts("timeline"),
+    ]);
+    res.json({ ok: true, data: { post: posts, moment: moments, timeline } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/** 读取单个草稿快照（打开编辑器时自动载入较新暂存） */
+router.get("/drafts/:kind/:id", async (req, res) => {
+  try {
+    const snap = await staging.getDraft(req.params.kind, req.params.id);
+    if (!snap) return res.status(404).json({ ok: false, error: "无暂存" });
+    res.json({ ok: true, data: snap });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/** 写入草稿快照（自动保存/Ctrl+S） */
+router.put("/drafts/:kind/:id", async (req, res) => {
+  try {
+    const { form, body, images, baseSha } = req.body || {};
+    const r = await staging.saveDraft(req.params.kind, req.params.id, { form, body, images, baseSha });
+    res.json({ ok: true, data: r });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/** 丢弃草稿（连带清理无主暂存图片） */
+router.delete("/drafts/:kind/:id", async (req, res) => {
+  try {
+    await staging.deleteDraft(req.params.kind, req.params.id);
+    res.json({ ok: true, data: { discarded: true } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ---------- 图片读取（上传后预览 / 已传图管理，不走公开 CDN） ----------
 
 const MIME_BY_EXT = {
@@ -210,8 +259,11 @@ router.get("/asset", async (req, res) => {
     }
 
     let buffer = null;
-    // DEV 暂存图片优先（未落盘的会话图）
-    if (isDev()) {
+    // 服务器暂存图片优先（自动保存时代的上传图：尚未推送仓库）
+    const stagedBuf = await staging.getStagedImage(relPath);
+    if (stagedBuf) buffer = stagedBuf;
+    // DEV 暂存图片次之（内存会话图）
+    if (!buffer && isDev()) {
       const staged = getImage(relPath);
       if (staged) buffer = staged.buffer;
     }
@@ -254,6 +306,7 @@ router.post("/posts", async (req, res) => {
 
     const result = await postsService.createPost(form || {}, String(body || ""), config.siteTimezone);
     invalidateTaxonomies(); // 新内容可能带来新标签/分类，缓存失效即时重建
+    await absorbAfterPush("post", form.slug, result, req.body?.stagedImages);
     await respondWithSave(res, result, {
       kind: "post",
       slug: result.slug,
@@ -269,6 +322,7 @@ router.put("/posts/:slug", async (req, res) => {
     const { form, body } = req.body || {};
     const result = await postsService.updatePost(req.params.slug, form || {}, String(body || ""), config.siteTimezone);
     invalidateTaxonomies();
+    await absorbAfterPush("post", result.slug, result, req.body?.stagedImages);
     await respondWithSave(res, result, {
       kind: "post",
       slug: result.slug,
@@ -345,6 +399,7 @@ router.post("/moments", async (req, res) => {
     }
     const result = await momentsService.createMoment(form || {}, String(body || ""), config.siteTimezone);
     invalidateTaxonomies();
+    await absorbAfterPush("moment", result.id, result, req.body?.stagedImages);
     await respondWithSave(res, result, { kind: "moment", id: result.id, message: "动态发布成功" });
   } catch (err) {
     handleError(res, err);
@@ -356,6 +411,7 @@ router.put("/moments/:id", async (req, res) => {
     const { form, body } = req.body || {};
     const result = await momentsService.updateMoment(req.params.id, form || {}, String(body || ""));
     invalidateTaxonomies();
+    await absorbAfterPush("moment", result.id, result, req.body?.stagedImages);
     await respondWithSave(res, result, { kind: "moment", id: result.id, message: "动态保存成功" });
   } catch (err) {
     handleError(res, err);
@@ -390,6 +446,7 @@ router.put("/timeline", async (req, res) => {
     const { op, index, original, item } = req.body || {};
     const result = await timelineService.mutateTimeline(op, { index, original, item });
     const messages = { create: "节点已新增", update: "节点已保存", delete: "节点已删除" };
+    await absorbAfterPush("timeline", "main", result);
     await respondWithSave(res, result, { kind: "timeline", message: messages[op] || "已保存" });
   } catch (err) {
     handleError(res, err);
@@ -413,13 +470,34 @@ router.post("/upload", (req, res) => {
     try {
       const { target, slug, momentDate } = req.body || {};
       if (!req.file) return res.status(400).json({ ok: false, error: "缺少文件" });
-      if (!["post", "moment"].includes(target)) {
-        return res.status(400).json({ ok: false, error: "target 必须为 post 或 moment" });
+      if (!["post", "moment", "cover"].includes(target)) {
+        return res.status(400).json({ ok: false, error: "target 必须为 post / moment / cover" });
       }
 
       const filename = uniqueName(req.file.originalname, req.file.buffer);
       let repoPath;
-      if (target === "post") {
+      if (target === "cover") {
+        // 封面图：固定文件名 cover.<ext>，重复上传天然覆盖；
+        // 同步清理旧扩展名的封面残留（换格式时 cover.png/cover.webp 并存会推两张）
+        if (!slug) return res.status(400).json({ ok: false, error: "缺少文章 slug" });
+        const ext = filename.match(/\.[a-z0-9]+$/i)?.[0] || ".png";
+        repoPath = postAssetPath(slug, `cover${ext}`);
+        for (const old of [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"]) {
+          if (old === ext.toLowerCase()) continue;
+          const stale = postAssetPath(slug, `cover${old}`);
+          if (!isDev()) {
+            // 生产：清磁盘暂存区
+            if (staging.hasStagedImage(stale)) {
+              const fs = await import("node:fs/promises");
+              await fs.rm(staging.stagingAssetPath(stale), { force: true }).catch(() => {});
+            }
+          } else {
+            // DEV：清内存暂存
+            const { deleteImage } = await import("../lib/image-staging.js");
+            deleteImage(stale);
+          }
+        }
+      } else if (target === "post") {
         if (!slug) return res.status(400).json({ ok: false, error: "缺少文章 slug" });
         repoPath = postAssetPath(slug, filename);
       } else {
@@ -429,10 +507,10 @@ router.post("/upload", (req, res) => {
         repoPath = momentAssetPath(momentDate, filename);
       }
 
-      // 生产模式直接推送到仓库；DEV 模式暂存内存（下载打包时带上）
+      // 上传一律只进服务器暂存区；随「暂存/发布」推送时按正文引用搬运
+      // （DEV 模式沿用内存暂存：下载 zip 时带上；封面固定名 putImage 同 key 天然覆盖）
       if (!isDev()) {
-        const { putFile } = await import("../lib/github.js");
-        await putFile(repoPath, req.file.buffer, `chore(asset): 上传图片 ${filename}`);
+        await staging.putStagedImage(repoPath, req.file.buffer);
       } else {
         const { putImage } = await import("../lib/image-staging.js");
         putImage(repoPath, req.file.buffer, req.file.mimetype);
@@ -485,6 +563,30 @@ async function collectReferencedImages(raw) {
     out.push(p);
   }
   return out;
+}
+
+/**
+ * 推送成功后吸收服务器暂存：搬运正文引用的暂存图片 → 清草稿快照。
+ * stagedImages：前端随推送提交的暂存图清单（[{repoPath}]，动态九宫格等
+ * frontmatter 引用无法从正文提取，由前端补充）；timeline 无图传 undefined。
+ * 吸收失败不阻断保存响应（暂存残留下次推送重试）。
+ */
+async function absorbAfterPush(kind, id, result, stagedImages) {
+  if (isDev()) return; // DEV 下载模式无服务器暂存
+  if (!id || !result || result.devDownload) return;
+  try {
+    const extra = Array.isArray(stagedImages)
+      ? stagedImages.map((i) => i?.repoPath).filter(Boolean)
+      : [];
+    const r = await staging.absorbDraft(kind, id, result.raw || "", extra, (p, buf, msg) =>
+      store.putFile(p, buf, msg),
+    );
+    if (r.pushed?.length) {
+      // 推完图片回写镜像（putFile 内部已处理）；无需其它动作
+    }
+  } catch (err) {
+    console.warn(`[staging] 吸收暂存失败（${kind}/${id}）: ${err.message}`);
+  }
 }
 
 /** 生成下载响应：无图 → .md；有图 → .zip */

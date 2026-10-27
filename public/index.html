@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
   <title>Shirone 写作台</title>
   <link rel="stylesheet" href="./style.css" />
   <link rel="stylesheet" href="./vendor/easymde/easymde.min.css" />
+  <link rel="stylesheet" href="./vendor/fontawesome/css/font-awesome.min.css" />
 </head>
 <body>
   <div id="app"></div>
@@ -29,26 +30,29 @@
     </div>
   </template>
 
-  <!-- 主框架 -->
+  <!-- 主框架：细图标侧边栏（常驻，原地展开为带文字的覆盖浮层）+ 主内容区 -->
   <template id="tpl-shell">
-    <header class="topbar">
-      <div class="topbar-brand">
-        <span class="brand-mark">Shirone</span><span class="brand-sub">写作台</span>
-        <span class="badge badge-dev" id="dev-badge" hidden>DEV 下载模式</span>
-      </div>
-      <nav class="topbar-nav">
-        <button class="nav-btn" data-view="posts">文章</button>
-        <button class="nav-btn" data-view="moments">动态</button>
-        <button class="nav-btn" data-view="timeline">时间线</button>
-      </nav>
-      <div class="topbar-actions">
-        <button class="btn btn-ghost" id="btn-deploy" hidden title="手动拉取站点构建产物（Actions 部署偶发超时失败时的补救）">⇩ 拉取站点</button>
-        <button class="btn btn-ghost" id="btn-sync" hidden title="从 GitHub 拉取最新内容到本地镜像">⟳ 同步</button>
-                <button class="btn btn-ghost" id="btn-mi-login" hidden title="部署/续期小米运动健康数据凭证">♥ 健康凭证</button>
-        <button class="btn btn-ghost" id="btn-logout">退出</button>
-      </div>
-    </header>
-    <main class="main" id="main"></main>
+    <div class="shell" id="shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-rail" id="sidebar-rail">
+          <button class="rail-btn rail-brand" id="btn-menu" title="展开 / 收起菜单">
+            <span class="rail-brand-v">Shirone</span>
+            <span class="rail-brand-h"><i class="fa fa-bars"></i><span class="rail-brand-text">Shirone 写作台</span></span>
+          </button>
+          <button class="rail-btn nav-btn" data-view="posts" title="文章"><i class="fa fa-file-text"></i><span class="rail-label">文章</span></button>
+          <button class="rail-btn nav-btn" data-view="moments" title="动态"><i class="fa fa-comment"></i><span class="rail-label">动态</span></button>
+          <button class="rail-btn nav-btn" data-view="timeline" title="时间线"><i class="fa fa-clock-o"></i><span class="rail-label">时间线</span></button>
+          <span class="badge badge-dev" id="dev-badge" hidden>DEV 下载模式</span>
+          <div class="rail-spacer"></div>
+          <button class="rail-btn" id="btn-deploy" hidden title="手动拉取站点构建产物（Actions 部署偶发超时失败时的补救）"><i class="fa fa-cloud-download"></i><span class="rail-label">拉取站点</span></button>
+          <button class="rail-btn" id="btn-sync" hidden title="从 GitHub 拉取最新内容到本地镜像"><i class="fa fa-refresh"></i><span class="rail-label">同步</span></button>
+          <span class="rail-btn health-alert" id="health-alert" hidden title="健康数据链路异常（凭证或同步停滞），详情看服务器日志"><i class="fa fa-heartbeat"></i><span class="rail-label">健康数据异常</span></span>
+          <button class="rail-btn" id="btn-logout" title="退出登录"><i class="fa fa-sign-out"></i><span class="rail-label">退出</span></button>
+        </div>
+        <div class="sidebar-mask" id="sidebar-mask" hidden></div>
+      </aside>
+      <main class="main" id="main"></main>
+    </div>
 
     <!-- 文章列表 -->
     <template id="tpl-posts">
@@ -58,7 +62,7 @@
       </div>
       <div class="filter-row">
         <input type="search" class="search-input" id="post-search" placeholder="搜索标题 / 标签 / 分类…" />
-        <label class="toggle" data-on="🙈" data-off="👁"><input type="checkbox" id="post-hide-draft" /><span>隐藏草稿</span></label>
+        <label class="toggle" data-icon="fa-eye-slash"><input type="checkbox" id="post-hide-draft" /><span>隐藏草稿</span></label>
       </div>
       <div class="card-list" id="post-list"></div>
     </template>
@@ -71,7 +75,7 @@
       </div>
       <div class="filter-row">
         <input type="search" class="search-input" id="moment-search" placeholder="搜索内容 / 标签…" />
-        <label class="toggle" data-on="🙈" data-off="👁"><input type="checkbox" id="moment-hide-draft" /><span>隐藏草稿</span></label>
+        <label class="toggle" data-icon="fa-eye-slash"><input type="checkbox" id="moment-hide-draft" /><span>隐藏草稿</span></label>
       </div>
       <div class="card-list" id="moment-list"></div>
     </template>
@@ -90,8 +94,12 @@
 
     <!-- 时间线节点编辑器 -->
     <template id="tpl-timeline-editor">
+      <div class="autosave-bar">
+        <span class="autosave-status" id="autosave-status-timeline">自动保存未启用</span>
+        <span class="autosave-banner" id="autosave-banner-timeline" hidden></span>
+      </div>
       <div class="editor-head">
-        <button class="btn btn-ghost" id="btn-back">← 返回</button>
+        <button class="btn btn-ghost" id="btn-back"><i class="fa fa-arrow-left"></i> 返回</button>
         <div class="editor-head-actions">
           <button class="btn btn-ghost" id="btn-delete-timeline">删除</button>
           <button class="btn btn-primary" id="btn-save-timeline">保存</button>
@@ -136,18 +144,22 @@
         </div>
 
         <div class="switch-row">
-          <label class="toggle" data-on="⭐" data-off="☆"><input type="checkbox" id="te-featured" /><span>重点里程碑</span></label>
-          <label class="toggle" data-on="🙈" data-off="👁"><input type="checkbox" id="te-disabled" /><span>隐藏节点</span></label>
+          <label class="toggle" data-icon="fa-star"><input type="checkbox" id="te-featured" /><span>重点里程碑</span></label>
+          <label class="toggle" data-icon="fa-eye-slash"><input type="checkbox" id="te-disabled" /><span>隐藏节点</span></label>
         </div>
       </div>
     </template>
 
     <!-- 文章编辑器 -->
     <template id="tpl-post-editor">
+      <div class="autosave-bar">
+        <span class="autosave-status" id="autosave-status-post">自动保存未启用</span>
+        <span class="autosave-banner" id="autosave-banner-post" hidden></span>
+      </div>
       <div class="editor-head">
-        <button class="btn btn-ghost" id="btn-back">← 返回</button>
+        <button class="btn btn-ghost" id="btn-back"><i class="fa fa-arrow-left"></i> 返回</button>
         <div class="editor-head-actions">
-          <label class="toggle" data-on="🔄" data-off="🕒"><input type="checkbox" id="pe-refresh-updated" /><span>刷新更新时间</span></label>
+          <label class="toggle" data-icon="fa-refresh"><input type="checkbox" id="pe-refresh-updated" /><span>刷新更新时间</span></label>
           <button class="btn btn-ghost" id="btn-delete-post">删除</button>
           <button class="btn btn-primary" id="btn-save-post">保存</button>
         </div>
@@ -162,10 +174,18 @@
             <span class="field-hint">只允许小写字母、数字与连字符；新建时从标题自动生成建议值</span></label>
           <div class="field-row">
             <label class="field"><span class="field-label">分类</span>
-              <input type="text" id="pe-category" list="category-options" placeholder="如：使用指南" />
-              <datalist id="category-options"></datalist></label>
-            <label class="field"><span class="field-label">封面图</span>
-              <input type="text" id="pe-image" placeholder="./cover.webp 或外链" /></label>
+              <input type="text" id="pe-category" placeholder="如：使用指南（可自定义）" autocomplete="off" />
+              <div class="cat-suggest" id="pe-cat-suggest" hidden></div></label>
+            <div class="field"><span class="field-label">封面图</span>
+              <div class="cover-upload" id="pe-cover-box">
+                <button type="button" class="btn btn-ghost cover-btn" id="btn-upload-cover">点击上传</button>
+                <input type="file" id="pe-cover-file" accept="image/*" hidden />
+                <img class="cover-thumb" id="pe-cover-thumb" alt="封面预览" hidden />
+                <span class="cover-hint" id="pe-cover-hint">固定 cover 文件名，重复上传覆盖</span>
+              </div>
+              <!-- 隐藏字段：实际提交的封面引用（./cover.webp 或外链） -->
+              <input type="hidden" id="pe-image" />
+            </div>
           </div>
           <label class="field"><span class="field-label">标签</span>
             <input type="text" id="pe-tags" placeholder="回车添加，如：博客、指南" />
@@ -175,9 +195,9 @@
           <label class="field"><span class="field-label">摘要</span>
             <textarea id="pe-description" rows="3" placeholder="留空则自动截取正文前段"></textarea></label>
           <div class="switch-row">
-            <label class="toggle" data-on="📌" data-off="📌"><input type="checkbox" id="pe-pinned" /><span>置顶</span></label>
-            <label class="toggle" data-on="✏️" data-off="📄"><input type="checkbox" id="pe-draft" /><span>草稿（同步仓库，生产站点隐藏）</span></label>
-            <label class="toggle" data-on="💬" data-off="💬"><input type="checkbox" id="pe-comment" checked /><span>开启评论</span></label>
+            <label class="toggle" data-icon="fa-thumb-tack"><input type="checkbox" id="pe-pinned" /><span>置顶</span></label>
+            <label class="toggle" data-icon="fa-pencil"><input type="checkbox" id="pe-draft" /><span>草稿（同步仓库，生产站点隐藏）</span></label>
+            <label class="toggle" data-icon="fa-comments"><input type="checkbox" id="pe-comment" checked /><span>开启评论</span></label>
           </div>
           <div class="meta-note" id="pe-meta-note" hidden></div>
         </section>
@@ -195,8 +215,12 @@
 
     <!-- 动态编辑器 -->
     <template id="tpl-moment-editor">
+      <div class="autosave-bar">
+        <span class="autosave-status" id="autosave-status-moment">自动保存未启用</span>
+        <span class="autosave-banner" id="autosave-banner-moment" hidden></span>
+      </div>
       <div class="editor-head">
-        <button class="btn btn-ghost" id="btn-back">← 返回</button>
+        <button class="btn btn-ghost" id="btn-back"><i class="fa fa-arrow-left"></i> 返回</button>
         <div class="editor-head-actions">
           <button class="btn btn-ghost" id="btn-delete-moment">删除</button>
           <button class="btn btn-primary" id="btn-save-moment">发布</button>
@@ -212,7 +236,7 @@
           <label class="field"><span class="field-label">地点</span>
             <div class="loc-row">
               <input type="text" id="me-location" placeholder="如：北京 · 朝阳" />
-              <button type="button" class="btn btn-ghost" id="btn-locate" title="通过浏览器获取当前位置（精确到省）">📍 定位</button>
+              <button type="button" class="btn btn-ghost" id="btn-locate" title="通过浏览器获取当前位置（精确到省）"><i class="fa fa-map-marker"></i> 定位</button>
             </div>
             <span class="field-hint" id="locate-hint">点击定位自动填入；GPS 需授权，拒绝时自动改用 IP 定位</span></label>
           <label class="field"><span class="field-label">标签</span>
@@ -222,8 +246,8 @@
         <div class="tag-box" id="me-tag-box"></div>
         <div class="tag-suggest" id="me-tag-suggest" hidden></div>
         <div class="field-row">
-          <label class="toggle" data-on="📌" data-off="📌"><input type="checkbox" id="me-pinned" /><span>置顶</span></label>
-          <label class="toggle" data-on="✏️" data-off="📄"><input type="checkbox" id="me-draft" /><span>草稿</span></label>
+          <label class="toggle" data-icon="fa-thumb-tack"><input type="checkbox" id="me-pinned" /><span>置顶</span></label>
+          <label class="toggle" data-icon="fa-pencil"><input type="checkbox" id="me-draft" /><span>草稿</span></label>
         </div>
         <div class="moment-images">
           <div class="moment-images-head">
@@ -241,49 +265,6 @@
   <!-- 通用对话框 -->
   <dialog id="dlg"></dialog>
 
-<!-- 小米健康凭证部署向导（独立于编辑器语法对话框） -->
-<dialog id="dlg-mi-login">
-  <div class="dlg-body">
-    <h3 class="dlg-title">小米运动健康 · 凭证部署</h3>
-    <div id="mi-status" class="mi-status"></div>
-    <form id="mi-form" autocomplete="off">
-      <div id="mi-step-cred" class="mi-step">
-        <p class="mi-hint">推荐：本机运行 <code>python login.py --user 账号 --password 密码</code>
-          （mihealth-api 目录）生成 config.json 后，把文件内容粘贴到下面上传。
-          之后的日常续期用下方「⟳ 免密续期」即可，无需再登录。</p>
-        <label class="field"><span class="field-label">凭证内容（config.json 全文）</span>
-          <textarea id="mi-cred-json" rows="6" placeholder='{"ssecurity": "...", "service_token": "...", "cuser_id": "...", "pass_token": "..."}'></textarea></label>
-        <details class="mi-alt">
-          <summary>或在服务器上直接登录（可能要求安全验证）</summary>
-          <label class="field"><span class="field-label">小米账号</span>
-            <input type="text" id="mi-user" placeholder="手机号 / 邮箱 / 小米 ID" /></label>
-          <label class="field"><span class="field-label">密码</span>
-            <input type="password" id="mi-pass" placeholder="仅当次登录使用，绝不落盘" /></label>
-          <div id="mi-captcha-row" class="mi-captcha" hidden>
-            <label class="field"><span class="field-label">图片验证码</span>
-              <input type="text" id="mi-captcha" placeholder="输入图中字符" /></label>
-            <img id="mi-captcha-img" alt="验证码" title="点击刷新" />
-          </div>
-        </details>
-      </div>
-      <div id="mi-step-2fa" class="mi-step" hidden>
-        <p class="mi-hint">小米要求安全验证。点下方按钮打开小米官方验证页（新标签页），
-          在官方页面发送验证码并输入完成验证；完成后回到本页点「我已完成验证」。</p>
-        <a id="mi-verify-link" class="btn btn-ghost mi-verify-link" target="_blank" rel="noopener">在小米官方页面验证 ↗</a>
-      </div>
-      <div id="mi-step-done" class="mi-step" hidden>
-        <p class="mi-hint" id="mi-done-hint"></p>
-        <p class="mi-hint" id="mi-sync-hint"></p>
-      </div>
-      <p class="mi-error" id="mi-error" hidden></p>
-    </form>
-    <div class="dlg-actions">
-      <button type="button" class="btn btn-ghost" data-mi-cancel>关闭</button>
-      <button type="button" class="btn btn-ghost" id="btn-mi-refresh" hidden>⟳ 免密续期</button>
-      <button type="button" class="btn btn-primary" id="btn-mi-submit">登录</button>
-    </div>
-  </div>
-</dialog>
   <div id="toast-box"></div>
 
   <script src="./vendor/easymde/easymde.min.js"></script>

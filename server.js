@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { config, validateConfig, isDev } from "./lib/config.js";
 import { router } from "./routes/api.js";
 import { healthRouter } from "./routes/health.js";
-import { miLoginRouter } from "./routes/mi-login.js";
 import { requireAuth } from "./lib/auth.js";
 import { dbConfigured } from "./lib/mihealth.js";
 
@@ -29,8 +28,9 @@ app.use(express.json({
 // 公开只读健康数据路由（无认证，直读 mihealth SQLite 库；博客 /health/ 页运行时取数）
 // 必须挂在 /api 之前：api router 内部的 requireAuth 才不会拦截 /api/health/*
 app.use("/api/health", healthRouter);
-// 小米账号凭证部署向导（需登录 Cookie；在 /api 之前挂载以便共享路径空间）
-app.use("/api/mi-login", requireAuth, miLoginRouter);
+// 凭证属配置文件范畴（MIHEALTH_DB 同目录 config.json，由运维放置）：
+// 写作台不再提供部署/续期向导，自动续期见 startAutoRenew；requireAuth 保留给下方 API
+void requireAuth;
 app.use("/api", router);
 
 // 静态资源
@@ -52,9 +52,11 @@ if (errors.length) {
 }
 
 // 健康数据自动同步（进程内定时器，每小时增量；凭证就位后自动开始）
+// 主动续期：每日检查会话年龄，超 14 天自动 pass_token 免密续期（替代旧向导按钮）
 if (dbConfigured()) {
-  const { startAutoSync } = await import("./lib/mihealth-sync.js");
+  const { startAutoSync, startAutoRenew } = await import("./lib/mihealth-sync.js");
   startAutoSync();
+  startAutoRenew();
 }
 
 // 生产模式：启动时异步预热镜像（不阻塞监听；失败不影响服务，读操作回退 GitHub API）

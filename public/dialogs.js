@@ -80,11 +80,11 @@ function collectRows(listId) {
 // ---------- 各扩展对话框定义 ----------
 
 const ADMONITION_TYPES = [
-  ["note", "📝 便签 Note"],
-  ["tip", "💡 技巧 Tip"],
-  ["important", "❗ 重要 Important"],
-  ["warning", "⚠️ 警告 Warning"],
-  ["caution", "🚫 危险 Caution"],
+  ["note", "便签 Note"],
+  ["tip", "技巧 Tip"],
+  ["important", "重要 Important"],
+  ["warning", "警告 Warning"],
+  ["caution", "危险 Caution"],
 ];
 
 export function mountDialogs({ toast }) {
@@ -327,7 +327,7 @@ export function mountDialogs({ toast }) {
                    <input type="checkbox" data-ref="${img.repoPath || img.src}" value="${img.webPath || img.src}" />
                    <img src="${assetUrl(img)}" alt="${img.name || ""}" loading="lazy" />
                    <span class="img-pick-name">${img.name || ""}</span>
-                   <span class="img-pick-check" aria-hidden="true">✓</span>
+                   <span class="img-pick-check" aria-hidden="true"><i class="fa fa-check"></i></span>
                  </label>`,
             )
             .join("")

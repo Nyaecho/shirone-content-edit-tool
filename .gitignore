@@ -4,6 +4,7 @@ node_modules/
 *.log
 .mirror/
 .drafts/
+.staging/
 .env.*
 .tmp-*
 .tmp*

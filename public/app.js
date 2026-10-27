@@ -4,6 +4,9 @@
  * DEV 模式下保存动作接收 .md / .zip 下载响应。
  */
 import { mountDialogs } from "./dialogs.js";
+import { AutosaveController, restoreDraft } from "./autosave.js";
+import { attachInlineImages } from "./inline-images.js";
+import { renderExtendedSyntax } from "./ext-preview.js";
 
 // 对话框注册表（启动时挂载）
 let DIALOGS = {};
@@ -22,6 +25,26 @@ const state = {
 // 时间线：全量节点 + 分类（GET /timeline 一次拉齐；编辑靠快照定位，不单独拉详情）
 let timelineCache = [];
 let timelineCategories = [];
+
+// ---------- Ctrl/Cmd+S 保存快捷键（document 级兜底，含 EasyMDE 外的 textarea/表单场景） ----------
+function saveShortcutHandler(e) {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  if (e.key !== "s" && e.key !== "S") return;
+  const post = qs("#btn-save-post");
+  const moment = qs("#btn-save-moment");
+  const timeline = qs("#btn-save-timeline");
+  const target = post && !post.disabled ? post : moment || timeline; // 同屏只存在一种编辑器
+  if (!target) return;
+  e.preventDefault();
+  e.stopPropagation();
+  // 编辑中且有自动保存控制器：Ctrl+S 语义 = 存服务器暂存（不推 git）
+  if (state.current.autosave) {
+    state.current.autosave.saveNow();
+    return;
+  }
+  target.click();
+}
+let saveShortcutBound = false; // renderShell 可重复调用，防重复注册
 
 // ---------- API ----------
 
@@ -79,6 +102,28 @@ function renderLogin() {
   });
 }
 
+// ---------- 健康数据警示点（纯展示：凭证/同步异常时红点，管理动作归运维配置文件） ----------
+
+function mountHealthAlert() {
+  const el = document.getElementById("health-alert");
+  if (!el) return;
+  const check = async () => {
+    try {
+      const s = await api("/health/alert");
+      const bad = s.configured && (s.credentialStale || s.syncStalled);
+      el.hidden = !bad;
+      if (bad) {
+        const why = s.credentialStale ? "凭证续期失败" : "数据同步停滞";
+        el.title = `健康数据链路异常（${why}）：MIHEALTH_DB 同目录 config.json 需运维重新生成；详情看服务器日志`;
+      }
+    } catch {
+      el.hidden = true; // 查询失败不提示（未配置 MIHEALTH_DB 属正常）
+    }
+  };
+  check();
+  setInterval(check, 10 * 60 * 1000); // 10 分钟一查
+}
+
 // ---------- 主框架 ----------
 
 function renderShell() {
@@ -86,12 +131,16 @@ function renderShell() {
   const shell = document.getElementById("tpl-shell").content.cloneNode(true);
   $app.appendChild(shell);
 
+  if (!saveShortcutBound) {
+    document.addEventListener("keydown", saveShortcutHandler);
+    saveShortcutBound = true;
+  }
   if (state.devMode) document.getElementById("dev-badge").hidden = false;
   else {
     document.getElementById("btn-sync").hidden = false; // 仅生产模式显示同步按钮
     document.getElementById("btn-deploy").hidden = false; // 拉取站点按钮（部署功能未配置时后端返回 503）
   }
-  mountMiLogin(toast);
+  mountHealthAlert();
 
   // 拉取站点：手动重试部署（Actions 链路偶发 git 超时失败的补救）
   const deployBtn = document.getElementById("btn-deploy");
@@ -125,7 +174,7 @@ function renderShell() {
         toast(err.message, true);
       } finally {
         deployBtn.disabled = false;
-        deployBtn.textContent = "⇩ 拉取站点";
+        deployBtn.textContent = "拉取站点";
       }
     });
   }
@@ -171,7 +220,7 @@ function renderShell() {
           syncBtn.textContent = "同步中…";
           await watchSyncProgress(syncBtn);
           syncBtn.disabled = false;
-          syncBtn.textContent = "⟳ 同步";
+          syncBtn.textContent = "同步";
         }
       } catch {
         /* 状态查询失败不打扰用户 */
@@ -183,8 +232,42 @@ function renderShell() {
     await api("/logout", { method: "POST" }).catch(() => {});
     renderLogin();
   });
+
+  // 侧边栏展开/收起：同一列按钮原地向右展开文字标签（覆盖浮层带阴影 + 遮罩）。
+  // 移动端（≤768px）恢复顶部常驻横条——标签常显、无展开概念，点击顶钮不切换。
+  const sidebar = document.getElementById("sidebar");
+  const mask = document.getElementById("sidebar-mask");
+  const isMobileLayout = () => window.matchMedia("(max-width: 768px)").matches;
+  const openRail = () => {
+    if (isMobileLayout()) return;
+    sidebar.classList.add("open");
+    mask.hidden = false;
+  };
+  const closeRail = () => {
+    sidebar.classList.remove("open");
+    mask.hidden = true;
+  };
+  const toggleRail = () => (sidebar.classList.contains("open") ? closeRail() : openRail());
+  document.getElementById("btn-menu").addEventListener("click", (e) => {
+    if (isMobileLayout()) return; // 移动端顶钮仅作品牌展示
+    e.stopPropagation();
+    toggleRail();
+  });
+  mask.addEventListener("click", closeRail);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeRail();
+  });
+  // 窗口缩到移动端布局时收起展开态（横条形态下残留 open 类会有阴影样式）
+  window.addEventListener("resize", () => {
+    if (isMobileLayout()) closeRail();
+  });
+  state.closeRail = closeRail;
+
   for (const btn of document.querySelectorAll(".nav-btn")) {
-    btn.addEventListener("click", () => switchView(btn.dataset.view));
+    btn.addEventListener("click", () => {
+      switchView(btn.dataset.view);
+      closeRail(); // 展开态点导航后自动收起（桌面）；移动端 closeRail 无副作用
+    });
   }
   switchView("posts");
 }
@@ -386,7 +469,7 @@ function drawMoments() {
         <div class="cc-title">${esc(m.excerpt || "(无文字)")}
           ${m.draft ? '<span class="badge badge-draft">草稿</span>' : ""}
           ${m.pinned ? '<span class="badge badge-pinned">置顶</span>' : ""}
-          ${m.imageCount ? `<span class="badge">🖼 ${m.imageCount}</span>` : ""}
+          ${m.imageCount ? `<span class="badge"><i class="fa fa-picture-o"></i> ${m.imageCount}</span>` : ""}
         </div>
         <div class="cc-sub">${esc([m.location, ...(m.tags || []).map((t) => `#${t}`)].filter(Boolean).join(" "))}</div>
       </div>
@@ -449,7 +532,7 @@ function drawTimeline() {
     card.innerHTML = `
       <div class="cc-main">
         <div class="cc-title">${esc(item.title)}
-          ${item.featured ? '<span class="badge badge-pinned">★ 重点</span>' : ""}
+          ${item.featured ? '<span class="badge badge-pinned"><i class="fa fa-star"></i> 重点</span>' : ""}
           ${item.enable === false ? '<span class="badge badge-draft">已隐藏</span>' : ""}
           ${item.category ? `<span class="badge">${esc(catLabel(item.category))}</span>` : ""}
         </div>
@@ -526,6 +609,75 @@ async function openTimelineEditor(index) {
   qs("#btn-save-timeline").addEventListener("click", saveTimelineItem);
   qs("#btn-back").addEventListener("click", renderTimelineList);
   qs("#btn-delete-timeline").addEventListener("click", deleteTimelineItem);
+
+  // ---- 自动保存（DEV 停用）：整个编辑表单作为一个快照，id 固定 main ----
+  if (!state.devMode) {
+    const collectTimelineForm = () => ({
+      form: {
+        title: qs("#te-title").value.trim(),
+        date: qs("#te-date").value.trim(),
+        category: qs("#te-category").value,
+        subtitle: qs("#te-subtitle").value.trim(),
+        location: qs("#te-location").value.trim(),
+        icon: qs("#te-icon").value.trim(),
+        description: qs("#te-description").value.trim(),
+        tags: state.tags.timeline,
+        highlights: state.timelineHighlights,
+        links: state.timelineLinks,
+        featured: qs("#te-featured").checked,
+        enable: !qs("#te-disabled").checked,
+      },
+      body: "",
+      // 快照定位信息存 baseSha（原节点 + 下标，推送时服务端重读比对）
+      baseSha: JSON.stringify({ index: state.current.timeline.index, original: state.current.timeline.original }),
+    });
+    const autosave = new AutosaveController({
+      kind: "timeline",
+      draftId: "main",
+      collect: collectTimelineForm,
+    });
+    state.current.autosave = autosave;
+    autosave.bindStatus(qs("#autosave-status-timeline"), qs("#autosave-banner-timeline"));
+
+    // 恢复暂存（只回填表单，不自动覆盖定位快照：用户确认后保存生效）
+    const snap = await restoreDraft("timeline", "main");
+    if (snap?.form) {
+      const f = snap.form;
+      qs("#te-title").value = f.title || "";
+      qs("#te-date").value = f.date || "";
+      qs("#te-subtitle").value = f.subtitle || "";
+      qs("#te-location").value = f.location || "";
+      qs("#te-icon").value = f.icon || "";
+      qs("#te-description").value = f.description || "";
+      qs("#te-featured").checked = f.featured === true;
+      qs("#te-disabled").checked = f.enable === false;
+      if (Array.isArray(f.tags)) {
+        state.tags.timeline = [...f.tags];
+        drawTimelineTags();
+      }
+      if (Array.isArray(f.highlights)) {
+        state.timelineHighlights = f.highlights.map(String);
+        drawHighlights();
+      }
+      if (Array.isArray(f.links)) {
+        state.timelineLinks = f.links.map((l) => ({ ...l }));
+        drawLinks();
+      }
+      const at = new Date(snap.savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+      autosave.showBanner(`已载入 ${at} 的时间线自动保存`, () => {});
+      autosave.lastSnapshot = JSON.stringify({ form: f, body: "" });
+    }
+
+    // 输入标脏：整卡事件委托（表单字段多，逐个绑定冗余）
+    main.addEventListener("input", () => autosave.markDirty());
+    main.addEventListener("change", () => autosave.markDirty());
+    qs("#btn-back").addEventListener("click", () => autosave.destroy());
+    qs("#btn-save-timeline").addEventListener("click", () => autosave.destroy(), { once: true });
+    qs("#btn-delete-timeline").addEventListener("click", () => autosave.destroy());
+  }
+
+  // 表单卡钉底（与文章左栏同款设计语言）；单列布局自动禁用
+  setupCardPinBottom(".timeline-editor", "#main");
 }
 
 /** 时间线标签输入：不复用 drawTags(kind) 的 post/moment 选择器硬编码，单独绑定 */
@@ -697,6 +849,35 @@ async function openPostEditor(slug) {
     : await api(`/posts/${encodeURIComponent(slug)}`);
   state.current.post = post;
 
+  // 自动保存控制器（DEV 模式停用：保存动作是下载，无服务器暂存语义）
+  const autosaveId = () => {
+    const s = qs("#pe-slug")?.value.trim();
+    return s || `_new-${state.current.post.tempKey}`;
+  };
+  const autosave = state.devMode
+    ? null
+    : new AutosaveController({
+        kind: "post",
+        draftId: autosaveId,
+        collect: () => {
+          const s = qs("#pe-slug")?.value.trim();
+          if (!s) throw new Error("slug 未填"); // 无 slug 不落暂存
+          // 暂存图清单：正文已传图 + 封面（封面不在正文，显式带上保证多端续写可见）
+          const imgs = [...(state.current.post.images || [])];
+          const coverRef = qs("#pe-image")?.value.trim() || "";
+          if (coverRef && !/^(https?:|data:)/i.test(coverRef)) {
+            const coverPath = `content/posts/${s}/${coverRef.replace(/^\.\//, "")}`;
+            if (!imgs.some((i) => i.repoPath === coverPath)) {
+              imgs.push({ repoPath: coverPath, name: coverPath.split("/").pop() });
+            }
+          }
+          return { ...collectPostForm(), body: state.editors.post.value(), images: imgs, baseSha: post.sha };
+        },
+      });
+  state.current.autosave = autosave;
+  if (!state.current.post.tempKey) state.current.post.tempKey = Date.now().toString(36);
+  if (autosave) autosave.bindStatus(qs("#autosave-status-post"), qs("#autosave-banner-post"));
+
   // 表单回填
   const fm = post.frontmatter || {};
   qs("#pe-title").value = fm.title || "";
@@ -705,6 +886,8 @@ async function openPostEditor(slug) {
   if (!isNew) qs("#pe-slug").title = "编辑模式下 slug 不可修改（避免破坏已发布链接）";
   qs("#pe-category").value = fm.category || "";
   qs("#pe-image").value = fm.image || "";
+  // 封面图：已有封面（./cover.webp 或外链）回填缩略图/按钮态
+  renderCoverState(fm.image || "", post.slug);
   qs("#pe-description").value = fm.description || "";
   qs("#pe-pinned").checked = fm.pinned === true;
   qs("#pe-draft").checked = fm.draft === true;
@@ -760,9 +943,22 @@ async function openPostEditor(slug) {
     element: qs("#pe-md"),
     initialValue: initial,
     spellChecker: false,
+    extraKeys: {
+      // CodeMirror 捕获焦点按键，document 监听收不到，双保险。
+      // 语义随批次2变更：有自动保存控制器时存服务器暂存，否则触发保存按钮
+      "Ctrl-S": () => {
+        if (state.current.autosave) state.current.autosave.saveNow();
+        else qs("#btn-save-post")?.click();
+      },
+      "Cmd-S": () => {
+        if (state.current.autosave) state.current.autosave.saveNow();
+        else qs("#btn-save-post")?.click();
+      },
+    },
     previewRender: (plainText, preview) => {
-      // 先用内置 marked 渲染，再重写图片 src 后注入预览容器
-      const rendered = EasyMDE.prototype.markdown.call(mde, plainText);
+      // 先把主题扩展语法转近似 HTML，再用内置 marked 渲染，最后重写图片 src
+      const extended = renderExtendedSyntax(plainText);
+      const rendered = EasyMDE.prototype.markdown.call(mde, extended);
       preview.innerHTML = rewritePreviewImages(rendered);
       return null;
     },
@@ -858,6 +1054,17 @@ async function openPostEditor(slug) {
   });
   state.editors.post = mde;
 
+  // 行内图片：图片引用行下方挂缩略图（src 解析与 rewritePreviewImages 同套规则）
+  const inlineImages = attachInlineImages(mde, {
+    repoPathOf: (src) => {
+      if (src.startsWith("./") || !src.startsWith("/")) {
+        return `content/posts/${post.slug}/${src.replace(/^\.?\//, "")}`;
+      }
+      return `public${src.split("?")[0]}`;
+    },
+  });
+  state.editors.postInlineImages = inlineImages;
+
   // 从标题自动生成 slug 建议（仅当用户尚未手动编辑过 slug）
   let slugTouched = isNew ? qs("#pe-slug").value.trim().length > 0 : true;
   qs("#pe-slug").addEventListener("input", () => { slugTouched = true; });
@@ -873,12 +1080,140 @@ async function openPostEditor(slug) {
   setupEditorDrop(mde, "post");
   setupEditorPaste(mde, "post");
 
+  // 封面图上传：固定 cover.<ext> 覆盖式；成功后缩略图 + 按钮变「重新上传」
+  setupCoverUpload({
+    getSlug: () => qs("#pe-slug").value.trim(),
+    onSaved: (ref) => {
+      qs("#pe-image").value = ref;
+      autosave?.markDirty();
+    },
+  });
+
   // 保存
   qs("#btn-save-post").addEventListener("click", () => savePost(isNew));
   qs("#btn-back").addEventListener("click", () => renderPostsList());
   qs("#btn-delete-post").addEventListener("click", () => deleteContent("post", post.slug));
 
   drawUploadList(); // 已传图回填（重开编辑器时可管理：预览/插入引用/移除）
+
+  // ---- 自动保存：恢复较新暂存 + 输入标脏 ----
+  if (autosave) {
+    const snap = await restoreDraft("post", autosaveId());
+    if (snap && (isNew || snap.savedAt > (post.frontmatter?.updatedAt || post.frontmatter?.publishedAt || ""))) {
+      // 暂存比仓库新：回填表单 + 横幅提示
+      qs("#pe-title").value = snap.form?.title || "";
+      if (isNew) qs("#pe-slug").value = snap.form?.slug || "";
+      qs("#pe-category").value = snap.form?.category || "";
+      qs("#pe-image").value = snap.form?.image || "";
+      renderCoverState(snap.form?.image || "", qs("#pe-slug").value.trim()); // 封面缩略图随暂存联动
+      qs("#pe-description").value = snap.form?.description || "";
+      qs("#pe-pinned").checked = snap.form?.pinned === true;
+      qs("#pe-draft").checked = snap.form?.draft === true;
+      qs("#pe-comment").checked = snap.form?.comment !== false;
+      if (Array.isArray(snap.form?.tags)) {
+        state.tags.post = [...snap.form.tags];
+        drawTags("post");
+      }
+      if (snap.body) state.editors.post.value(snap.body);
+      if (Array.isArray(snap.images)) {
+        // 合并暂存图（去重）
+        const known = new Set((state.current.post.images || []).map((i) => i.repoPath));
+        for (const img of snap.images) {
+          if (img?.repoPath && !known.has(img.repoPath)) state.current.post.images.push(img);
+        }
+        drawUploadList();
+      }
+      const at = new Date(snap.savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+      autosave.showBanner(`已载入 ${at} 的自动保存草稿`, () => {});
+      autosave.lastSnapshot = JSON.stringify(snap.form ? { ...snap.form, body: snap.body, images: snap.images } : "");
+      syncPostSaveBtn();
+    }
+
+    // 输入监听：元信息表单 + 编辑器正文 + 标签
+    for (const sel of ["#pe-title", "#pe-slug", "#pe-category", "#pe-image", "#pe-description", "#pe-pinned", "#pe-draft", "#pe-comment"]) {
+      qs(sel)?.addEventListener("input", () => autosave.markDirty());
+      qs(sel)?.addEventListener("change", () => autosave.markDirty());
+    }
+    state.editors.post.codemirror.on("change", () => autosave.markDirty());
+    qs("#btn-back").addEventListener("click", () => { autosave.destroy(); state.editors.postInlineImages?.destroy(); });
+    qs("#btn-save-post").addEventListener("click", () => { autosave.destroy(); state.editors.postInlineImages?.destroy(); }, { once: true });
+  }
+
+  // 左栏钉底：元信息卡底部到达视口底时固定（正文继续滚）；单列布局（含移动端）自动禁用
+  setupCardPinBottom(".editor-meta", ".editor-grid");
+}
+
+/**
+ * 卡片钉底控制器（设计语言统一：文章左栏 / 动态表单卡 / 时间线表单卡同款）：
+ * - 卡片随页面滚动；底部到达视口底时 translateY 钉住（后续内容继续滚）
+ * - 位移上限 = 参照容器高 - 卡片高（滚到页尾随内容离开，不悬空）
+ * - Chrome 系 grid/flex item 的 sticky bottom 不生效（已知 bug），故 JS 实现；
+ *   原生 sticky 生效的浏览器自动跳过接管
+ * - 单列布局（≤960px，含移动端）：卡片与正文同列，钉住会遮正文——禁用
+ * @param cardSel 卡片选择器；boundSel 钉底范围参照（通常是卡片所在的容器）
+ */
+function setupCardPinBottom(cardSel, boundSel) {
+  const card = qs(cardSel);
+  const bound = qs(boundSel);
+  if (!card || !bound) return;
+
+  // 单列布局禁用（含移动端：所有卡片纵排，固定反而突兀）
+  const singleCol = () => window.matchMedia("(max-width: 960px)").matches;
+
+  let raf = null;
+  const update = () => {
+    raf = null;
+    if (singleCol()) {
+      card.style.transform = "";
+      card.classList.remove("pin-bottom");
+      return;
+    }
+    const vh = window.innerHeight;
+    const dyMax = bound.offsetHeight - card.offsetHeight;
+    if (dyMax <= 0) {
+      card.style.transform = "";
+      card.classList.remove("pin-bottom");
+      return;
+    }
+    // 自然文档位置底部（offsetTop 不含 transform）
+    const naturalBottom = card.offsetTop + card.offsetHeight;
+    const dy = Math.max(0, Math.min(window.scrollY + vh - naturalBottom, dyMax));
+    if (dy > 0) {
+      card.classList.add("pin-bottom");
+      card.style.transform = `translateY(${dy}px)`;
+    } else {
+      card.classList.remove("pin-bottom");
+      card.style.transform = "";
+    }
+  };
+  const onScroll = () => {
+    if (raf == null) raf = requestAnimationFrame(update);
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll);
+  update();
+
+  // 卸载清理（返回/保存/删除后 main 重绘）
+  const teardown = () => {
+    window.removeEventListener("scroll", onScroll);
+    window.removeEventListener("resize", onScroll);
+    if (raf != null) cancelAnimationFrame(raf);
+    card.style.transform = "";
+    card.classList.remove("pin-bottom");
+  };
+  for (const sel of ["#btn-back", "#btn-save-post", "#btn-save-moment", "#btn-save-timeline",
+    "#btn-delete-post", "#btn-delete-moment", "#btn-delete-timeline"]) {
+    qs(sel)?.addEventListener("click", teardown, { once: true });
+  }
+  // 兜底：main 被整体重绘（其它路径导航）时元素已从 DOM 移除，监听器成孤儿——
+  // 用 MutationObserver 检测卡片脱离文档即自动 teardown
+  const mo = new MutationObserver(() => {
+    if (!card.isConnected) {
+      mo.disconnect();
+      teardown();
+    }
+  });
+  mo.observe(document.getElementById("main"), { childList: true, subtree: true });
 }
 
 function collectPostForm() {
@@ -899,7 +1234,17 @@ function collectPostForm() {
 async function savePost(isNew) {
   const form = collectPostForm();
   const body = state.editors.post.value();
-  const payload = { form, body };
+  // 暂存图清单随推送提交：后端 absorbAfterPush 据此搬运。
+  // 已传图清单 + 封面（封面在 frontmatter 不在正文，必须显式带上才能随发布推送）
+  const coverRef = qs("#pe-image")?.value.trim() || "";
+  const coverPath = coverRef && !/^(https?:|data:)/i.test(coverRef)
+    ? `content/posts/${form.slug}/${coverRef.replace(/^\.\//, "")}`
+    : null;
+  const staged = [...(state.current.post?.images || [])];
+  if (coverPath && !staged.some((i) => i.repoPath === coverPath)) {
+    staged.push({ repoPath: coverPath, name: coverPath.split("/").pop() });
+  }
+  const payload = { form, body, stagedImages: staged };
   const btn = qs("#btn-save-post");
   const isDraft = form.draft === true;
   btn.disabled = true;
@@ -929,11 +1274,11 @@ async function savePost(isNew) {
 // ---------- 动态编辑器 ----------
 
 const MOODS = [
-  { icon: "material-symbols:sentiment-satisfied-outline-rounded", emoji: "😊", label: "开心" },
-  { icon: "material-symbols:sentiment-excited-outline-rounded", emoji: "🤩", label: "兴奋" },
-  { icon: "material-symbols:sentiment-neutral-outline-rounded", emoji: "😐", label: "专注" },
-  { icon: "material-symbols:sentiment-sad-outline-rounded", emoji: "😪", label: "疲惫" },
-  { icon: "material-symbols:lightbulb-outline-rounded", emoji: "💡", label: "灵感" },
+  { icon: "material-symbols:sentiment-satisfied-outline-rounded", label: "开心" },
+  { icon: "material-symbols:sentiment-excited-outline-rounded", label: "兴奋" },
+  { icon: "material-symbols:sentiment-neutral-outline-rounded", label: "专注" },
+  { icon: "material-symbols:sentiment-sad-outline-rounded", label: "疲惫" },
+  { icon: "material-symbols:lightbulb-outline-rounded", label: "灵感" },
 ];
 
 async function openMomentEditor(id) {
@@ -946,6 +1291,30 @@ async function openMomentEditor(id) {
     ? { id: "", sha: null, frontmatter: {}, body: "" }
     : await api(`/moments/${encodeURIComponent(id)}`);
   state.current.moment = moment;
+
+  // 自动保存（DEV 停用）；动态新建无 id，用临时键，发布时由后端吸收
+  const autosaveId = () => (state.current.moment?.id ? state.current.moment.id : `_new-${state.current.moment?.tempKey || "m"}`);
+  const autosave = state.devMode
+    ? null
+    : new AutosaveController({
+        kind: "moment",
+        draftId: autosaveId,
+        collect: () => ({
+          form: {
+            location: qs("#me-location").value.trim(),
+            mood: selectedMood(),
+            tags: state.tags.moment,
+            pinned: qs("#me-pinned").checked,
+            draft: qs("#me-draft").checked,
+            images: state.momentImages,
+          },
+          body: qs("#me-md").value,
+          baseSha: moment.sha,
+        }),
+      });
+  state.current.autosave = autosave;
+  if (!state.current.moment.tempKey) state.current.moment.tempKey = Date.now().toString(36);
+  if (autosave) autosave.bindStatus(qs("#autosave-status-moment"), qs("#autosave-banner-moment"));
   state.momentImages = Array.isArray(moment.frontmatter?.images) ? moment.frontmatter.images.map((i) => ({ ...i })) : [];
 
   const fm = moment.frontmatter || {};
@@ -976,7 +1345,8 @@ async function openMomentEditor(id) {
     btn.type = "button";
     btn.className = "mood-btn";
     btn.title = m.label;
-    btn.textContent = m.emoji;
+    // 心情用首字做 UI 显示（存 iconify 名进 frontmatter，与站点渲染一致）
+    btn.textContent = m.label.slice(0, 1);
     btn.dataset.icon = m.icon;
     if (fm.mood === m.icon) btn.classList.add("active");
     btn.addEventListener("click", () => {
@@ -999,6 +1369,9 @@ async function openMomentEditor(id) {
   qs("#btn-back").addEventListener("click", () => renderMomentsList());
   qs("#btn-delete-moment").addEventListener("click", () => deleteContent("moment", moment.id));
   qs("#btn-locate").addEventListener("click", locateMe);
+
+  // 表单卡钉底（与文章左栏同款设计语言）；单列布局自动禁用
+  setupCardPinBottom(".moment-editor", "#main");
 }
 
 /** 定位：浏览器 GPS 优先（精确），拒绝/失败自动降级 IP 定位 */
@@ -1014,7 +1387,7 @@ async function locateMe() {
   };
   const finish = () => {
     btn.disabled = false;
-    btn.textContent = "📍 定位";
+    btn.textContent = "定位";
   };
 
   // 无 Geolocation 支持或非安全上下文 → 直接 IP 定位
@@ -1095,6 +1468,10 @@ async function saveMoment(isNew) {
     suffix: suggestSuffix(qs("#me-location").value || state.tags.moment[0] || ""),
   };
   const body = qs("#me-md").value;
+  // 动态图片随推送提交（九宫格在 frontmatter，无法从正文提取，靠 stagedImages 搬运）
+  const payload = { form, body, stagedImages: state.momentImages.map((i) => ({
+    repoPath: String(i.src || "").startsWith("/") ? `public${String(i.src).split("?")[0]}` : String(i.src || ""),
+  })) };
   const btn = qs("#btn-save-moment");
   const isDraft = form.draft === true;
   btn.disabled = true;
@@ -1102,7 +1479,7 @@ async function saveMoment(isNew) {
   try {
     const res = await api(isNew ? "/moments" : `/moments/${encodeURIComponent(state.current.moment.id)}`, {
       method: isNew ? "POST" : "PUT",
-      body: { form, body },
+      body: payload,
     });
     if (res.download) {
       triggerDownload(res.download, res.filename);
@@ -1140,7 +1517,7 @@ async function uploadOne(file, target) {
   const listEl = target === "post" ? qs("#pe-upload-list") : qs("#me-upload-list");
   const item = document.createElement("span");
   item.className = "upload-item";
-  item.textContent = `↑ ${file.name} 上传中…`;
+  item.textContent = `上传中 ${file.name}…`;
   listEl.appendChild(item);
 
   try {
@@ -1165,9 +1542,90 @@ async function uploadOne(file, target) {
       drawMomentImages();
     }
   } catch (err) {
-    item.textContent = `✗ ${file.name}: ${err.message}`;
+    item.textContent = `失败 ${file.name}: ${err.message}`;
     item.classList.add("fail");
   }
+}
+
+// ---------- 封面图上传（固定 cover.<ext>，覆盖式） ----------
+
+/** 封面引用 → 可预览 URL（相对 ./cover.xx 走 asset 代理；外链原样；无封面 null） */
+function coverPreviewUrl(ref, slug) {
+  if (!ref) return null;
+  if (/^(https?:|data:|blob:)/i.test(ref)) return ref; // 外链
+  const name = ref.startsWith("./") ? ref.slice(2) : ref;
+  return assetUrl(`content/posts/${slug}/${name}`);
+}
+
+/**
+ * 渲染封面组件状态：无封面 = 「点击上传」；有封面 = 缩略图 + 「重新上传」。
+ * ref 为空字符串时回到初始态（外链封面仅展示，同样支持重传覆盖）。
+ */
+function renderCoverState(ref, slug) {
+  const btn = qs("#btn-upload-cover");
+  const thumb = qs("#pe-cover-thumb");
+  const hint = qs("#pe-cover-hint");
+  if (!btn || !thumb) return;
+  const url = coverPreviewUrl(ref, slug);
+  if (url) {
+    thumb.src = url;
+    thumb.hidden = false;
+    btn.textContent = "重新上传";
+    if (hint) hint.textContent = "再次上传将覆盖当前封面";
+  } else {
+    thumb.hidden = true;
+    thumb.removeAttribute("src");
+    btn.textContent = "点击上传";
+    if (hint) hint.textContent = "固定 cover 文件名，重复上传覆盖";
+  }
+}
+
+/** 绑定封面上传交互：选文件 → POST /upload(target=cover) → 缩略图 + 联动自动保存 */
+function setupCoverUpload({ getSlug, onSaved }) {
+  const btn = qs("#btn-upload-cover");
+  const fileInput = qs("#pe-cover-file");
+  if (!btn || !fileInput) return;
+
+  btn.addEventListener("click", () => {
+    const slug = getSlug();
+    if (!slug) {
+      toast("请先填写 Slug 再上传封面（图片存文章目录）", true);
+      return;
+    }
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = ""; // 允许连续选同一文件重传
+    if (!file) return;
+    const slug = getSlug();
+    if (!slug) {
+      toast("请先填写 Slug 再上传封面", true);
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "上传中…";
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("target", "cover");
+      fd.append("slug", slug);
+      const data = await api("/upload", { method: "POST", body: fd });
+      // 相对引用（./cover.webp）与正文图片同口径
+      const name = data.repoPath.split("/").pop();
+      const ref = `./${name}`;
+      renderCoverState(ref, slug);
+      onSaved?.(ref);
+      toast("封面已上传（保存时随文章推送）");
+    } catch (err) {
+      toast(`封面上传失败：${err.message}`, true);
+    } finally {
+      btn.disabled = false;
+      // 按当前值重渲染（成功=重新上传；失败=保持原状态），不恢复旧文案
+      renderCoverState(qs("#pe-image").value || "", slug);
+    }
+  });
 }
 
 /**
@@ -1267,16 +1725,61 @@ async function loadTaxonomies() {
   }
 }
 
-/** 填充文章分类 datalist（HTML 中预留了 #category-options，此前从未填充） */
+/**
+ * 文章分类自绘候选区（取代原生 datalist——移动端内部控件体验差且样式失控）：
+ * - 输入过滤：键入时只显示匹配项（可完全自定义新分类，候选仅辅助）
+ * - 点击填入；已填项再点 = 清除
+ * - 候选为空（首次使用）时隐藏，不占空间
+ */
 function fillCategoryOptions() {
-  const datalist = qs("#category-options");
-  if (!datalist) return;
-  datalist.innerHTML = "";
-  for (const c of state.taxonomies?.categories || []) {
-    const opt = document.createElement("option");
-    opt.value = c.name;
-    datalist.appendChild(opt);
-  }
+  const box = qs("#pe-cat-suggest");
+  const input = qs("#pe-category");
+  if (!box || !input) return;
+
+  const render = () => {
+    const all = state.taxonomies?.categories || [];
+    if (!all.length) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    const q = input.value.trim().toLowerCase();
+    // 已填的分类排前（可一键清除），其余按文章数降序；输入时只留匹配项
+    const items = [...all]
+      .sort((a, b) => b.count - a.count)
+      .filter((c) => !q || c.name.toLowerCase().includes(q))
+      .slice(0, 12);
+    if (!items.length) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = "";
+    const label = document.createElement("span");
+    label.className = "tag-suggest-label";
+    label.textContent = "已有分类";
+    box.appendChild(label);
+    for (const c of items) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "tag-suggest-chip cat-chip";
+      chip.title = c.count > 0 ? `${c.count} 篇文章` : "点击填入";
+      const active = c.name === input.value.trim();
+      if (active) chip.classList.add("cat-chip-active");
+      chip.innerHTML = `${esc(c.name)}<span class="tag-suggest-count">${c.count}</span>`;
+      chip.addEventListener("click", () => {
+        input.value = active ? "" : c.name; // 再点清除
+        render();
+        input.dispatchEvent(new Event("input", { bubbles: true })); // 触发自动保存标脏
+      });
+      box.appendChild(chip);
+    }
+  };
+
+  input.addEventListener("input", render);
+  input.addEventListener("focus", render);
+  render();
 }
 
 /**
@@ -1443,165 +1946,3 @@ api("/me")
   })
   .catch(() => renderLogin());
 
-// ---------- 小米健康凭证部署向导 ----------
-// 状态机：idle(凭证概况) → password(账号密码，可能出图片验证码) → 2fa(短信/邮箱验证码)
-//         → done(凭证已落盘)。免密续期一键完成。密码只在提交请求里，不落任何存储。
-
-function mountMiLogin(toast) {
-  const btn = document.getElementById("btn-mi-login");
-  const dlg = document.getElementById("dlg-mi-login");
-  if (!btn || !dlg) return;
-  btn.hidden = false; // 已配置 MIHEALTH_DB 时显示（后端 status 会兜底提示）
-
-  const $ = (id) => document.getElementById(id);
-  const showStep = (name) => {
-    $("mi-step-cred").hidden = name !== "cred";
-    $("mi-step-2fa").hidden = name !== "2fa";
-    $("mi-step-done").hidden = name !== "done";
-    $("btn-mi-submit").hidden = name === "done";
-    $("btn-mi-refresh").hidden = !(name === "done" || name === "idle");
-    $("btn-mi-submit").textContent = name === "2fa" ? "我已完成验证" : "上传 / 登录";
-  };
-  const showError = (msg) => {
-    const el = $("mi-error");
-    el.hidden = !msg;
-    el.textContent = msg || "";
-  };
-
-  async function refreshStatus() {
-    try {
-      const s = await api("/mi-login/status");
-      const el = $("mi-status");
-      if (!s.configured) {
-        el.textContent = "尚未部署凭证——用小米账号登录一次即可（之后每 1~2 个月点一次免密续期）。";
-        $("mi-done-hint").textContent = "";
-      } else {
-        const age = s.ageDays != null ? `（凭证 ${s.ageDays} 天前更新）` : "";
-        el.textContent = s.hasPassToken
-          ? `凭证已部署${age}，passToken 支持免密续期。`
-          : `凭证已部署${age}，但无 passToken——过期后需重新账号密码登录。`;
-        $("mi-done-hint").textContent = el.textContent;
-        // 同步状态（数据自动化）
-        try {
-          const syn = await api("/mi-login/sync");
-          const hint = $("mi-sync-hint");
-          if (syn.running) hint.textContent = "数据同步进行中…";
-          else if (syn.lastResult) {
-            const at = new Date(syn.lastResult.at).toLocaleTimeString("zh-CN");
-            hint.textContent = syn.lastResult.error
-              ? `上次同步失败（${at}）：${syn.lastResult.error}`
-              : `上次同步 ${at}（${syn.lastResult.mode}，${syn.lastResult.rows ?? 0} 行）；每小时自动增量`;
-          } else hint.textContent = "每小时自动增量；首次上传凭证会自动全量回填";
-        } catch { $("mi-sync-hint").textContent = ""; }
-      }
-    } catch { /* 静默 */ }
-  }
-
-  // 向导中间态（跨步骤）：登录会话 id / 2FA 上下文
-  let wizard = { loginId: null, context: null, flag: 4 };
-
-  async function submit() {
-    showError("");
-    const submitBtn = $("btn-mi-submit");
-    submitBtn.disabled = true;
-    submitBtn.textContent = "请求中…";
-    try {
-      // 优先通道：上传凭证 JSON（本机 login.py 生成 config.json 的内容）
-      const credJson = $("mi-cred-json").value.trim();
-      if (credJson) {
-        let parsed;
-        try {
-          parsed = JSON.parse(credJson);
-        } catch {
-          throw new Error("凭证不是合法 JSON——请粘贴完整的 config.json 文件内容");
-        }
-        await api("/mi-login/upload", { method: "POST", body: parsed });
-        toast("凭证上传成功，健康数据页已可用");
-        showStep("done");
-        await refreshStatus();
-        return;
-      }
-      // 备用通道：服务器上直接账号密码登录
-      if (!$("mi-step-2fa").hidden) {
-        // 第三步：用户已在小米官方验证页完成 → 服务端续接取凭证
-        const r = await api("/mi-login/resume", {
-          method: "POST",
-          body: { loginId: wizard.loginId },
-        });
-        toast("凭证部署完成，健康数据页已可用");
-        showStep("done");
-        await refreshStatus();
-        return;
-      }
-      // 第一/二步：账号密码（可能带图片验证码重试）
-      const username = $("mi-user").value.trim();
-      const password = $("mi-pass").value;
-      if (!username || !password) throw new Error("请填写账号与密码");
-      const r = await api("/mi-login/password", {
-        method: "POST",
-        body: {
-          username,
-          password,
-          loginId: wizard.loginId,
-          captcha: $("mi-captcha-row").hidden ? null : $("mi-captcha").value.trim() || null,
-          ick: wizard.ick || null,
-        },
-      });
-      if (r.step === "captcha") {
-        wizard = { loginId: r.loginId, ick: null, context: null, flag: 4 };
-        $("mi-captcha-row").hidden = false;
-        $("mi-captcha-img").src = r.captchaUrl;
-        showError("需要图片验证码：输入后重新点「登录」（账号密码已记住在表单里）");
-        return;
-      }
-      if (r.step === "2fa") {
-        wizard = { loginId: r.loginId };
-        $("mi-verify-link").href = r.verifyUrl;
-        showStep("2fa");
-        return;
-      }
-      toast("登录成功，凭证已部署");
-      showStep("done");
-      await refreshStatus();
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = $("mi-step-2fa").hidden ? "登录" : "提交验证码";
-    }
-  }
-
-  async function refreshCreds() {
-    showError("");
-    const btnR = $("btn-mi-refresh");
-    btnR.disabled = true;
-    btnR.textContent = "续期中…";
-    try {
-      await api("/mi-login/refresh", { method: "POST" });
-      toast("免密续期成功");
-      await refreshStatus();
-    } catch (err) {
-      showError(`续期失败：${err.message}`);
-    } finally {
-      btnR.disabled = false;
-      btnR.textContent = "⟳ 免密续期";
-    }
-  }
-
-  btn.addEventListener("click", () => {
-    wizard = { loginId: null, ick: null, context: null, flag: 4 };
-    $("mi-captcha-row").hidden = true;
-    $("mi-pass").value = "";
-        showError("");
-    showStep("cred");
-    refreshStatus();
-    dlg.showModal();
-  });
-  dlg.querySelector("[data-mi-cancel]").addEventListener("click", () => dlg.close());
-  $("mi-captcha-img").addEventListener("click", (e) => {
-    // 点击刷新验证码（换 ick 需重开会话，简化为重新拉取同 URL 加时间戳）
-    e.target.src = e.target.src.split("&_ts=")[0] + "&_ts=" + Date.now();
-  });
-  $("btn-mi-submit").addEventListener("click", submit);
-  $("btn-mi-refresh").addEventListener("click", refreshCreds);
-}

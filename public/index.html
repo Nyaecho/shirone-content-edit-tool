@@ -30,29 +30,26 @@
     </div>
   </template>
 
-  <!-- 主框架：细图标侧边栏（常驻，原地展开为带文字的覆盖浮层）+ 主内容区 -->
+  <!-- 主框架 -->
   <template id="tpl-shell">
-    <div class="shell" id="shell">
-      <aside class="sidebar" id="sidebar">
-        <div class="sidebar-rail" id="sidebar-rail">
-          <button class="rail-btn rail-brand" id="btn-menu" title="展开 / 收起菜单">
-            <span class="rail-brand-v">Shirone</span>
-            <span class="rail-brand-h"><i class="fa fa-bars"></i><span class="rail-brand-text">Shirone 写作台</span></span>
-          </button>
-          <button class="rail-btn nav-btn" data-view="posts" title="文章"><i class="fa fa-file-text"></i><span class="rail-label">文章</span></button>
-          <button class="rail-btn nav-btn" data-view="moments" title="动态"><i class="fa fa-comment"></i><span class="rail-label">动态</span></button>
-          <button class="rail-btn nav-btn" data-view="timeline" title="时间线"><i class="fa fa-clock-o"></i><span class="rail-label">时间线</span></button>
-          <span class="badge badge-dev" id="dev-badge" hidden>DEV 下载模式</span>
-          <div class="rail-spacer"></div>
-          <button class="rail-btn" id="btn-deploy" hidden title="手动拉取站点构建产物（Actions 部署偶发超时失败时的补救）"><i class="fa fa-cloud-download"></i><span class="rail-label">拉取站点</span></button>
-          <button class="rail-btn" id="btn-sync" hidden title="从 GitHub 拉取最新内容到本地镜像"><i class="fa fa-refresh"></i><span class="rail-label">同步</span></button>
-          <span class="rail-btn health-alert" id="health-alert" hidden title="健康数据链路异常（凭证或同步停滞），详情看服务器日志"><i class="fa fa-heartbeat"></i><span class="rail-label">健康数据异常</span></span>
-          <button class="rail-btn" id="btn-logout" title="退出登录"><i class="fa fa-sign-out"></i><span class="rail-label">退出</span></button>
-        </div>
-        <div class="sidebar-mask" id="sidebar-mask" hidden></div>
-      </aside>
-      <main class="main" id="main"></main>
-    </div>
+    <header class="topbar">
+      <div class="topbar-brand">
+        <span class="brand-mark">Shirone</span><span class="brand-sub">写作台</span>
+        <span class="badge badge-dev" id="dev-badge" hidden>DEV 下载模式</span>
+      </div>
+      <nav class="topbar-nav">
+        <button class="nav-btn" data-view="posts">文章</button>
+        <button class="nav-btn" data-view="moments">动态</button>
+        <button class="nav-btn" data-view="timeline">时间线</button>
+      </nav>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="btn-deploy" hidden title="手动拉取站点构建产物（Actions 部署偶发超时失败时的补救）">⇩ 拉取站点</button>
+        <button class="btn btn-ghost" id="btn-sync" hidden title="从 GitHub 拉取最新内容到本地镜像">⟳ 同步</button>
+        <span class="btn btn-ghost health-alert" id="health-alert" hidden title="健康数据链路异常（凭证或同步停滞），详情看服务器日志">♥ 健康数据异常</span>
+        <button class="btn btn-ghost" id="btn-logout">退出</button>
+      </div>
+    </header>
+    <main class="main" id="main"></main>
 
     <!-- 文章列表 -->
     <template id="tpl-posts">

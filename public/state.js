@@ -11,7 +11,6 @@ export const state = {
   momentImages: [],
   taxonomies: null, // { tags: [{name,posts,moments,total}], categories: [{name,count}] }，null = 未加载
   checkRemoteAhead: null,
-  closeRail: null,
 };
 
 /** 时间线：全量节点 + 分类（GET /timeline 一次拉齐；编辑靠快照定位，不单独拉详情） */

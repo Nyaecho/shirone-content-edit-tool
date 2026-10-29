@@ -44,83 +44,24 @@ body {
 }
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 
-/* ---------- 布局：细图标侧边栏（常驻；点击顶钮原地向右展开文字，覆盖浮层带阴影） ---------- */
-.shell { display: flex; min-height: 100vh; }
-/* aside 恒定占位 56px：rail 展开为 fixed 浮层时 main 不发生宽度跳变 */
-.sidebar { position: relative; flex-shrink: 0; width: 56px; }
-.sidebar-rail {
-  position: sticky; top: 0; height: 100vh; width: 56px;
-  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
-  padding: 12px 8px; background: var(--surface-2); border-right: 1px solid var(--outline-variant);
-  z-index: 60;
-  transition: width 0.22s ease, box-shadow 0.22s ease;
-  overflow: hidden; /* 收起时裁掉文字标签（布局宽随 width 过渡同步收缩） */
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex; align-items: center; gap: 24px; padding: 10px 24px;
+  background: var(--surface-2); border-bottom: 1px solid var(--outline-variant);
+  position: sticky; top: 0; z-index: 50;
 }
-/* 展开态：脱离文档流悬浮覆盖内容（浮层带阴影），不再挤压 main */
-.sidebar.open .sidebar-rail {
-  position: fixed; top: 0; left: 0; bottom: 0;
-  width: 200px;
-  box-shadow: 2px 0 16px rgb(0 0 0 / 25%);
-  border-right-color: var(--outline-variant);
+.topbar-brand { display: flex; align-items: baseline; gap: 8px; }
+.brand-mark { font-weight: 700; font-size: 18px; color: var(--primary); }
+.brand-sub { color: var(--on-surface-variant); font-size: 13px; }
+.topbar-nav { display: flex; gap: 4px; flex: 1; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.nav-btn {
+  border: none; background: none; color: var(--on-surface-variant); font-size: 14px;
+  padding: 8px 16px; border-radius: 999px; cursor: pointer;
 }
-.rail-btn {
-  border: none; background: none; color: var(--on-surface-variant);
-  min-height: 40px; padding: 0 8px; border-radius: 12px; cursor: pointer;
-  display: flex; align-items: center; gap: 10px; font-size: 14px;
-  white-space: nowrap;
-}
-.rail-btn > i { width: 20px; text-align: center; font-size: 16px; flex-shrink: 0; }
-.rail-btn:hover { background: var(--surface-3); }
-.rail-btn.active { background: var(--primary-container); color: var(--on-primary-container); }
-/* 文字标签：收起时藏在裁剪区外，展开时随宽度自然显现 */
-.rail-label {
-  opacity: 0; transition: opacity 0.15s ease 0.05s;
-  overflow: hidden; text-overflow: ellipsis;
-}
-.sidebar.open .rail-label { opacity: 1; }
-/* 顶部品牌钮：收起 = 竖排 Shirone；展开 = 汉堡 + 横排标题 */
-.rail-brand { min-height: 48px; align-items: center; }
-.rail-brand-v { color: var(--primary); font-weight: 700; font-size: 11px; letter-spacing: 2px; writing-mode: vertical-rl; }
-.rail-brand-h { display: none; align-items: center; gap: 8px; color: var(--primary); font-weight: 700; font-size: 14px; }
-.sidebar.open .rail-brand-v { display: none; }
-.sidebar.open .rail-brand-h { display: flex; }
-.rail-spacer { flex: 1; }
-.badge-dev { align-self: center; }
-/* 展开态下 DEV 徽标横排不挤 */
-.sidebar.open .badge-dev { align-self: stretch; text-align: center; }
-.sidebar-mask { position: fixed; inset: 0; z-index: 55; background: rgb(0 0 0 / 30%); }
+.nav-btn:hover { background: var(--surface-3); }
+.nav-btn.active { background: var(--primary-container); color: var(--on-primary-container); font-weight: 600; }
 .health-alert { color: var(--error); animation: remote-pulse 2s ease-in-out infinite; }
-
-/* --- 移动端（≤768）：侧边栏恢复顶部常驻横条（改动前形态） --- */
-@media (max-width: 768px) {
-  .shell { flex-direction: column; }
-  .sidebar { width: 100%; }
-  .sidebar-mask { display: none !important; } /* 顶部横条不遮挡内容，无需遮罩 */
-  .sidebar-rail {
-    position: sticky; top: 0; height: auto; width: 100%;
-    flex-direction: row; align-items: center; gap: 2px;
-    padding: 6px 8px; border-right: none; border-bottom: 1px solid var(--outline-variant);
-    overflow-x: auto; overflow-y: hidden; /* 按钮过多时横滚兜底，绝不换行撑高 */
-    box-shadow: none !important;
-  }
-  .rail-btn { min-height: 38px; padding: 0 9px; border-radius: 10px; flex-shrink: 0; }
-  .rail-btn > i { width: auto; }
-  /* 顶部横条：主 label 常显；品牌与次要按钮只留图标省空间 */
-  .rail-label { opacity: 1; }
-  .rail-brand { min-height: 38px; }
-  .rail-brand-v { display: none; }
-  .rail-brand-h { display: flex; }
-  .rail-brand-text { display: none; } /* 汉堡钮纯图标（移动端无展开语义） */
-  #btn-deploy .rail-label, #btn-sync .rail-label,
-  #health-alert .rail-label, #btn-logout .rail-label { display: none; }
-  .rail-spacer { flex: 1 1 auto; min-width: 8px; }
-  .badge-dev { align-self: center; flex-shrink: 0; }
-  /* 横滚时隐藏滚动条痕迹（有 border-bottom 分隔，横滚不突兀） */
-  .sidebar-rail::-webkit-scrollbar { display: none; }
-  .sidebar-rail { scrollbar-width: none; }
-}
-
-/* ---------- 登录 ---------- */
 
 /* ---------- 登录 ---------- */
 .login-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
@@ -131,17 +72,6 @@ body {
 .login-title { margin: 0 0 4px; font-size: 24px; }
 .login-sub { margin: 0 0 24px; color: var(--on-surface-variant); font-size: 13px; }
 .login-error { color: var(--error); font-size: 13px; margin: 12px 0 0; }
-
-/* ---------- 品牌/导航（移动端顶部横条复用） ---------- */
-.brand-mark { font-weight: 700; font-size: 18px; color: var(--primary); }
-.brand-sub { color: var(--on-surface-variant); font-size: 13px; }
-.nav-btn {
-  border: none; background: none; color: var(--on-surface-variant); font-size: 14px;
-  padding: 8px 16px; border-radius: 999px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 8px;
-}
-.nav-btn:hover { background: var(--surface-3); }
-.nav-btn.active { background: var(--primary-container); color: var(--on-primary-container); font-weight: 600; }
 
 /* ---------- 按钮 ---------- */
 .btn {
@@ -230,6 +160,14 @@ body {
 .cc-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-sub { color: var(--on-surface-variant); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-meta { color: var(--on-surface-variant); font-size: 12.5px; white-space: nowrap; }
+.cc-meta .cc-discard {
+  margin-left: 8px; padding: 3px; border: 0; background: none; color: var(--on-surface-variant);
+  display: inline-flex; align-items: center; cursor: pointer; border-radius: 999px;
+  vertical-align: -5px; transition: color 0.15s, background 0.15s;
+}
+.cc-meta .cc-discard svg { width: 15px; height: 15px; display: block; }
+.cc-meta .cc-discard:hover { color: var(--error); background: var(--surface-3); }
+.cc-meta .cc-discard:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
 .badge {
   display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px;
@@ -455,11 +393,19 @@ body {
 /* 编辑器列防撑爆：CodeMirror 内部 sizer 需要可压缩 */
 .editor-body { min-width: 0; }
 .editor-body .EasyMDEContainer, .editor-body .CodeMirror { min-width: 0; }
-/* 格式工具栏钉顶：长文页滚时贴住视口顶（随编辑器整体进出视口自动释放） */
+/* 格式工具栏钉顶：长文页滚时贴住顶栏底边（随编辑器整体进出视口自动释放）。
+   --topbar-h 由 app.js 按实际顶栏高度动态写入（响应式换行会变），缺省 0px 兜底 */
 .EasyMDEContainer .editor-toolbar {
   background: var(--surface-2); border-color: var(--outline-variant);
-  position: sticky; top: 0; z-index: 30;
+  position: sticky; top: var(--topbar-h, 0px); z-index: 30;
 }
+/* EasyMDE 全屏/分屏：原生 z-index 仅 8/9，低于常驻顶栏(50)会被盖住、按钮点不到——
+   压过顶栏层级（全屏语义本就是覆盖整个视口）。
+   双类选择器提特异性：easymde.min.css 在 style.css 之后加载，同特异性会被其覆盖 */
+.EasyMDEContainer .editor-toolbar.fullscreen { z-index: 52; }
+.EasyMDEContainer .CodeMirror.CodeMirror-fullscreen,
+.EasyMDEContainer .CodeMirror.CodeMirror-sided,
+.EasyMDEContainer div.editor-preview-full { z-index: 51; }
 .EasyMDEContainer .editor-toolbar button { color: var(--on-surface); }
 .EasyMDEContainer .editor-toolbar .separator { border-color: var(--outline-variant); }
 .EasyMDEContainer .CodeMirror-cursor { border-color: var(--primary); }
@@ -677,10 +623,10 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 
 /* ============================================================
  * 多端分辨率适配
- * 断点（与侧边栏 960px 联动成体系）：
+ * 断点：
  *   ≥1280 桌面全尺寸：左右分栏 320px + 编辑器
  *   961–1279 小桌面/大平板：分栏收窄 260px，主区留白收紧
- *   769–960 平板：分栏进一步收窄 220px；抽屉偏移 48px
+ *   769–960 平板：分栏进一步收窄 220px
  *   ≤768 手机：单列堆叠，元信息卡置顶；触控目标放大；字号微调
  * ============================================================ */
 
@@ -700,6 +646,10 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 @media (max-width: 768px) {
   body { font-size: 14.5px; }
   .main { padding: 14px; }
+  /* 顶栏窄屏换行兜底：品牌/导航/动作组堆叠，避免横向溢出 */
+  .topbar { flex-wrap: wrap; gap: 8px 16px; padding: 8px 14px; }
+  .topbar-nav { order: 3; width: 100%; }
+  .topbar-actions { margin-left: auto; }
   /* 列表卡片：标题与元信息换行排布，点击区域更高 */
   .content-card { flex-wrap: wrap; gap: 6px 12px; padding: 12px 14px; }
   .cc-meta { width: 100%; font-size: 12px; color: var(--on-surface-variant); }
@@ -741,7 +691,6 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
 
 /* --- 触控设备（无 hover 能力）：热区整体放大 --- */
 @media (hover: none) and (pointer: coarse) {
-  .rail-btn { min-height: 44px; }
   .nav-btn { padding: 10px 16px; }
   /* 候选 chip 与心情钮：触控热区放大，防误触 */
   .tag-chip, .tag-suggest-chip { padding: 6px 12px; font-size: 13px; min-height: 32px; }
@@ -750,8 +699,7 @@ dialog::backdrop { background: rgb(0 0 0 / 45%); }
   .ui-btn, .fr-remove { min-width: 30px; min-height: 30px; }
 }
 
-/* --- 短视口（横屏手机，高度 < 500）：侧边栏展开态可滚动 --- */
+/* --- 短视口（横屏手机，高度 < 500）：对话框收窄 --- */
 @media (max-height: 500px) {
-  .sidebar.open .sidebar-rail { overflow-y: auto; }
   .dlg-body { max-height: 60vh; }
 }

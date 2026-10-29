@@ -104,6 +104,16 @@ function renderShell() {
   const shell = document.getElementById("tpl-shell").content.cloneNode(true);
   $app.appendChild(shell);
 
+  // 顶栏高度 → CSS 变量：钉顶元素（编辑器工具栏等）的 sticky 偏移要以顶栏底边为准。
+  // 顶栏常驻但高度随响应式换行变化（桌面单行 / 手机两行），ResizeObserver 动态跟测。
+  const topbar = document.querySelector(".topbar");
+  if (topbar) {
+    const syncTopbarH = () =>
+      document.documentElement.style.setProperty("--topbar-h", `${topbar.offsetHeight}px`);
+    syncTopbarH();
+    new ResizeObserver(syncTopbarH).observe(topbar);
+  }
+
   if (!saveShortcutBound) {
     document.addEventListener("keydown", saveShortcutHandler);
     saveShortcutBound = true;
@@ -147,7 +157,7 @@ function renderShell() {
         toast(err.message, true);
       } finally {
         deployBtn.disabled = false;
-        deployBtn.textContent = "拉取站点";
+        deployBtn.textContent = "⇩ 拉取站点";
       }
     });
   }
@@ -193,7 +203,7 @@ function renderShell() {
           syncBtn.textContent = "同步中…";
           await watchSyncProgress(syncBtn);
           syncBtn.disabled = false;
-          syncBtn.textContent = "同步";
+          syncBtn.textContent = "⟳ 同步";
         }
       } catch {
         /* 状态查询失败不打扰用户 */
@@ -206,41 +216,8 @@ function renderShell() {
     renderLogin();
   });
 
-  // 侧边栏展开/收起：同一列按钮原地向右展开文字标签（覆盖浮层带阴影 + 遮罩）。
-  // 移动端（≤768px）恢复顶部常驻横条——标签常显、无展开概念，点击顶钮不切换。
-  const sidebar = document.getElementById("sidebar");
-  const mask = document.getElementById("sidebar-mask");
-  const isMobileLayout = () => window.matchMedia("(max-width: 768px)").matches;
-  const openRail = () => {
-    if (isMobileLayout()) return;
-    sidebar.classList.add("open");
-    mask.hidden = false;
-  };
-  const closeRail = () => {
-    sidebar.classList.remove("open");
-    mask.hidden = true;
-  };
-  const toggleRail = () => (sidebar.classList.contains("open") ? closeRail() : openRail());
-  document.getElementById("btn-menu").addEventListener("click", (e) => {
-    if (isMobileLayout()) return; // 移动端顶钮仅作品牌展示
-    e.stopPropagation();
-    toggleRail();
-  });
-  mask.addEventListener("click", closeRail);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeRail();
-  });
-  // 窗口缩到移动端布局时收起展开态（横条形态下残留 open 类会有阴影样式）
-  window.addEventListener("resize", () => {
-    if (isMobileLayout()) closeRail();
-  });
-  state.closeRail = closeRail;
-
   for (const btn of document.querySelectorAll(".nav-btn")) {
-    btn.addEventListener("click", () => {
-      switchView(btn.dataset.view);
-      closeRail(); // 展开态点导航后自动收起（桌面）；移动端 closeRail 无副作用
-    });
+    btn.addEventListener("click", () => switchView(btn.dataset.view));
   }
   switchView("posts");
 }
@@ -338,6 +315,7 @@ async function watchSyncProgress(syncBtn) {
 // ---------- 文章列表 ----------
 
 let postsCache = [];
+let orphanDraftCache = []; // 服务器孤儿暂存草稿（仓库中无对应文章的自动保存快照）
 
 async function renderPostsList() {
   const main = document.getElementById("main");
@@ -351,7 +329,14 @@ async function renderPostsList() {
   const listEl = document.getElementById("post-list");
   listEl.innerHTML = `<div class="empty">加载中…</div>`;
   try {
-    postsCache = await api("/posts");
+    // 仓库文章 + 服务器孤儿暂存草稿（未被仓库吸收的自动保存快照）一起列出，
+    // 避免新建文章返回后自动保存内容在主页「消失」
+    const [posts, drafts] = await Promise.all([
+      api("/posts"),
+      state.devMode ? Promise.resolve([]) : api("/drafts").then((d) => d.post || []).catch(() => []),
+    ]);
+    postsCache = posts;
+    orphanDraftCache = drafts.filter((d) => !posts.some((p) => p.slug === d.id));
     drawPosts();
   } catch (err) {
     listEl.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
@@ -368,12 +353,46 @@ function drawPosts() {
     if (!q) return true;
     return [p.title, p.category, ...(p.tags || [])].join(" ").toLowerCase().includes(q);
   });
+  const draftItems = orphanDraftCache.filter((d) => {
+    if (hideDraft && d.draftFlag) return false;
+    if (!q) return true;
+    return [d.title, d.id].join(" ").toLowerCase().includes(q);
+  });
 
-  if (!items.length) {
+  if (!items.length && !draftItems.length) {
     listEl.innerHTML = `<div class="empty">没有符合条件的文章</div>`;
     return;
   }
   listEl.innerHTML = "";
+  for (const d of draftItems) {
+    const card = document.createElement("div");
+    card.className = "content-card";
+    const at = new Date(d.savedAt);
+    const meta = `${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")} 自动保存`;
+    card.innerHTML = `
+      <div class="cc-main">
+        <div class="cc-title">${esc(d.title || d.id)}
+          <span class="badge badge-staged">未发布暂存</span>
+          ${d.draftFlag ? '<span class="badge badge-draft">草稿</span>' : ""}
+        </div>
+        <div class="cc-sub">${esc(d.id)} · ${d.bodyLength} 字</div>
+      </div>
+      <div class="cc-meta">${esc(meta)}<button type="button" class="cc-discard" title="丢弃此暂存（不影响仓库文章）" aria-label="丢弃此暂存"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h15"/><path d="M9.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M6.5 7l.8 11.1a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7"/><path d="M10 11v5.5M14 11v5.5"/></svg></button></div>`;
+    card.addEventListener("click", () => openPostEditor(d.id));
+    card.querySelector(".cc-discard").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`丢弃暂存「${d.title || d.id}」？此操作不可恢复。`)) return;
+      try {
+        await api(`/drafts/post/${encodeURIComponent(d.id)}`, { method: "DELETE" });
+        toast("暂存已丢弃");
+        orphanDraftCache = orphanDraftCache.filter((x) => x.id !== d.id);
+        drawPosts();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+    listEl.appendChild(card);
+  }
   for (const p of items) {
     const card = document.createElement("div");
     card.className = "content-card";
@@ -816,10 +835,17 @@ async function openPostEditor(slug) {
   main.innerHTML = "";
   main.appendChild(document.getElementById("tpl-post-editor").content.cloneNode(true));
 
-  const isNew = !slug;
-  let post = isNew
-    ? { slug: "", path: "", sha: null, frontmatter: {}, body: "", images: [], referencedImages: [] }
-    : await api(`/posts/${encodeURIComponent(slug)}`);
+  // slug 可能来自列表页的孤儿暂存草稿入口：仓库无此文章 → 按新建语义打开，
+  // 但预填 slug 让编辑器与暂存快照同键（否则 tempKey 不同，恢复/吸收都错位）
+  let post = null;
+  if (slug) {
+    post = await api(`/posts/${encodeURIComponent(slug)}`).catch((err) => {
+      if (err.message?.includes("不存在")) return null; // 仓库无文件（孤儿暂存入口）
+      throw err;
+    });
+  }
+  const isNew = !post;
+  if (!post) post = { slug: slug || "", path: "", sha: null, frontmatter: {}, body: "", images: [], referencedImages: [] };
   state.current.post = post;
 
   // 自动保存控制器（DEV 模式停用：保存动作是下载，无服务器暂存语义）
@@ -1087,8 +1113,11 @@ async function openPostEditor(slug) {
   if (autosave) {
     const snap = await restoreDraft("post", autosaveId());
     // 版本对比（乐观锁语义）：暂存记录保存时的文件 sha 与当前一致才恢复。
-    // 修复：老文章无 updatedAt/publishedAt 时旧时间比较恒真，空暂存覆盖标题/分类/草稿勾选
-    const snapIsCurrent = snap && snap.baseSha != null && snap.baseSha === post.sha;
+    // 修复：老文章无 updatedAt/publishedAt 时旧时间比较恒真，空暂存覆盖标题/分类/草稿勾选。
+    // 例外：新建文章（仓库无文件）双方 sha 均为 null——此时暂存必然是唯一内容，放行恢复，
+    // 否则新建后返回、再从列表打开暂存草稿时内容找不回
+    const snapIsCurrent = snap
+      && (snap.baseSha != null ? snap.baseSha === post.sha : post.sha == null);
     if (snapIsCurrent) {
       // 暂存比仓库新：回填表单 + 横幅提示
       qs("#pe-title").value = snap.form?.title || "";
@@ -1402,6 +1431,17 @@ async function deleteContent(kind, id) {
     if (kind === "post") renderPostsList();
     else renderMomentsList();
   } catch (err) {
+    // 孤儿暂存草稿：仓库无对应文章（404），删除动作降级为丢弃暂存
+    if (kind === "post" && !state.devMode && err.message?.includes("不存在")) {
+      try {
+        await api(`/drafts/post/${encodeURIComponent(id)}`, { method: "DELETE" });
+        toast("暂存已丢弃");
+        renderPostsList();
+        return;
+      } catch {
+        /* 丢弃失败走原始错误提示 */
+      }
+    }
     toast(err.message, true);
   }
 }

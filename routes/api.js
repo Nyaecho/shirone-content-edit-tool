@@ -208,11 +208,12 @@ router.get("/drafts/:kind/:id", async (req, res) => {
   }
 });
 
-/** 写入草稿快照（自动保存/Ctrl+S） */
+/** 写入草稿快照（自动保存/Ctrl+S）。
+ *  整个 req.body 透传给 saveDraft——lib 层做契约归一化
+ *  （顶层混入的表单字段自动收拢进 form，兼容展平形态的历史 payload）。 */
 router.put("/drafts/:kind/:id", async (req, res) => {
   try {
-    const { form, body, images, baseSha } = req.body || {};
-    const r = await staging.saveDraft(req.params.kind, req.params.id, { form, body, images, baseSha });
+    const r = await staging.saveDraft(req.params.kind, req.params.id, req.body || {});
     res.json({ ok: true, data: r });
   } catch (err) {
     handleError(res, err);

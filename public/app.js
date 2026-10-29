@@ -844,7 +844,10 @@ async function openPostEditor(slug) {
               imgs.push({ repoPath: coverPath, name: coverPath.split("/").pop() });
             }
           }
-          return { ...collectPostForm(), body: state.editors.post.value(), images: imgs, baseSha: post.sha };
+          // 契约：AutosaveController 期望 {form, body, images, baseSha}——form 必须包一层。
+          // （历史 bug：曾把表单字段展平在顶层，服务端解构 form=undefined 存成 {}，
+          //  恢复时标题/分类/草稿勾选全部丢失）
+          return { form: collectPostForm(), body: state.editors.post.value(), images: imgs, baseSha: post.sha };
         },
       });
   state.current.autosave = autosave;

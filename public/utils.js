@@ -18,9 +18,13 @@ export function assetUrl(repoPath) {
 }
 
 /** 文章图片 src → 仓库路径：相对路径（./x 或不以 / 开头）按文章资产目录
- *  content/posts/<slug>/x 解析；站点根绝对路径（/images/...）映射 public/ 前缀
- *  并剥掉 query 串。预览改写与行内图片预览共用同一套规则。 */
+ *  content/posts/<slug>/x 解析；/content/...、/public/...（uploads.js webPath 形态，
+ *  画廊插入引用即此形态）剥前导斜杠映射回仓库路径；其余站点根绝对路径（/images/...）
+ *  映射 public/ 前缀并剥掉 query 串。预览改写与行内图片预览共用同一套规则。 */
 export function postSrcToRepoPath(src, slug) {
+  if (src.startsWith("/content/") || src.startsWith("/public/")) {
+    return src.split("?")[0].slice(1);
+  }
   if (src.startsWith("./") || !src.startsWith("/")) {
     return `content/posts/${slug}/${src.replace(/^\.?\//, "")}`;
   }

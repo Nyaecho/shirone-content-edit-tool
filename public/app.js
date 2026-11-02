@@ -925,13 +925,16 @@ async function openPostEditor(slug) {
   const initial = post.body || "";
   // 预览时把文章内相对/根路径图片重写为 /api/asset 代理 URL，
   // 否则浏览器按相对路径请求 admin 源站拿不到图片（线上站点才有这些资源）
+  // slug 与 collect 同源取 #pe-slug 实时值：新建未保存时 state.current.post.slug 为空串，
+  // 历史缺陷用闭包 post.slug 导致预览请求 content/posts//<file> 恒 404（盲测 F5）
+  const previewSlug = () => qs("#pe-slug")?.value.trim() || "";
   const rewritePreviewImages = (html) => {
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
     for (const img of tpl.content.querySelectorAll("img[src]")) {
       const src = img.getAttribute("src");
       if (/^(https?:|data:|blob:)/i.test(src)) continue; // 外链/dataURL 不动
-      img.setAttribute("src", assetUrl(postSrcToRepoPath(src, post.slug)));
+      img.setAttribute("src", assetUrl(postSrcToRepoPath(src, previewSlug())));
     }
     return tpl.innerHTML;
   };
@@ -1061,9 +1064,10 @@ async function openPostEditor(slug) {
     }
   }
 
-  // 行内图片：图片引用行下方挂缩略图（src 解析与 rewritePreviewImages 同套规则）
+  // 行内图片：图片引用行下方挂缩略图（src 解析与 rewritePreviewImages 同套规则，
+  // slug 同取 #pe-slug 实时值）
   const inlineImages = attachInlineImages(mde, {
-    repoPathOf: (src) => postSrcToRepoPath(src, post.slug),
+    repoPathOf: (src) => postSrcToRepoPath(src, previewSlug()),
   });
   state.editors.postInlineImages = inlineImages;
 

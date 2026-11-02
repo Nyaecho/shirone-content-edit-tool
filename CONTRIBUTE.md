@@ -90,7 +90,8 @@ fixture 清单。用法约定：
 - **type**：`feat` / `fix` / `refactor` / `docs` / `chore`
 - **scope**：小写连字符，取自改动域。历史已用：
   `sync` `deploy` `ui` `ux` `editor` `api` `time` `mi-login` `mi-sync` `health`
-  `staging` `proxy` `timeline` `tags` `prune` `mirror` `draft` `dedupe` `cleanup` `comments`
+  `staging` `proxy` `timeline` `tags` `prune` `mirror` `draft` `dedupe` `cleanup`
+  以及 docs 类 `readme` `env` `contribute` `architecture` `comments`
 - 描述一行说清**行为变化**；误删恢复、契约回归要在描述里点名（先例：
   `a64baba` 「恢复 GITHUB_API_BASE/GITHUB_WEB_BASE——f4c6b75 重构误删 4cc689a 代理支持」）
 - 多个 bug 同属一个逻辑组可合并一个 commit（先例：暂存层三连修复 B2+B3+B4）

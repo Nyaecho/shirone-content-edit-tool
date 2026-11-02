@@ -457,8 +457,8 @@ router.put("/timeline", async (req, res) => {
 
 /**
  * 上传图片。字段：
- * - target: "post" | "moment"
- * - slug: 文章 slug（target=post 时必填）
+ * - target: "post" | "moment" | "cover"
+ * - slug: 文章 slug（target=post|cover 时必填）
  * - momentDate: 动态日期 YYYY-MM-DD（target=moment 时必填，回填时用已有 published 的前 10 位）
  * （现行口径见下方路由体注释：上传一律只进暂存区，随「暂存/发布」推送搬运）
  */

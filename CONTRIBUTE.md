@@ -31,7 +31,7 @@ npm run dev        # http://localhost:3777
 本工作区维护了一套冒烟台（随工作区迭代，**不属于仓库内容**）：
 
 ```bash
-bash /e/tmp/shirone-qa/run-smoke.sh <tag>
+bash /e/Project/blog/.qa/run-smoke.sh <tag>
 ```
 
 自动重建内容 fixture → 起服务 → 跑断言 → 保存快照基线（`baseline-<tag>.json`）与
@@ -128,7 +128,7 @@ fixture 清单。用法约定：
 端到端测试。本仓库的验证闸门：
 
 1. **语法**：`node --check <file>`——改动过的每个 js/mjs 都跑（前端 ESM 同样适用）
-2. **行为回归**：QA 冒烟台（`bash /e/tmp/shirone-qa/run-smoke.sh <tag>`，工作区维护，
+2. **行为回归**：QA 冒烟台（`bash /e/Project/blog/.qa/run-smoke.sh <tag>`，工作区维护，
    见「2. 环境搭建」）；server 行为变更必跑
 3. **专项脚本**：健康数据 `node scripts/test-mihealth.mjs`；时间线
    `DEV_MODE=1 DEV_CONTENT_DIR=<内容仓> node scripts/test-timeline2.mjs`

@@ -1207,6 +1207,11 @@ async function savePost(isNew) {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
     loadTaxonomies(); // 新写入的标签/分类即时进入候选池
+    if (isNew) {
+      // 新建发布成功：自动保存期间的 _new-<tempKey> 快照（若存在）已成孤儿——
+      // 服务端按正式 slug 吸收；best-effort 清理（e430a3b 孤儿清理语义自动化），无则静默
+      fetch(`api/drafts/post/_new-${state.current.post.tempKey}`, { method: "DELETE" }).catch(() => {});
+    }
     // 发布成功后返回列表页（异步刷新标签池，不阻塞导航）
     renderPostsList();
   } catch (err) {
@@ -1240,6 +1245,9 @@ async function openMomentEditor(id) {
         kind: "moment",
         draftId: autosaveId,
         collect: () => ({
+          // 契约：AutosaveController 期望 {form, body, images, baseSha}——images 必须在顶层，
+          // 服务端 saveDraft 按顶层 images 登记暂存图引用计数；漏掉则快照 images=[],
+          // 发布吸收时九宫格暂存图无人引用被当作无主清理
           form: {
             location: qs("#me-location").value.trim(),
             mood: selectedMood(),
@@ -1249,6 +1257,7 @@ async function openMomentEditor(id) {
             images: state.momentImages,
           },
           body: qs("#me-md").value,
+          images: state.momentImages.map((i) => ({ ...i })),
           baseSha: moment.sha,
         }),
       });
@@ -1301,6 +1310,37 @@ async function openMomentEditor(id) {
   qs("#me-md").value = moment.body || "";
 
   drawMomentImages();
+
+  // ---- 自动保存：恢复较新暂存（DEV 停用走不到；语义对齐 post 编辑器） ----
+  if (autosave) {
+    const snap = await restoreDraft("moment", autosaveId());
+    // 版本对比（乐观锁语义）：暂存记录保存时的文件 sha 与当前一致才恢复，防旧暂存覆盖新内容；
+    // 新建动态双方 sha 均为 null——暂存是唯一内容副本，放行恢复
+    const snapIsCurrent =
+      snap && snap.savedAt && (snap.baseSha != null ? snap.baseSha === moment.sha : moment.sha == null);
+    if (snapIsCurrent) {
+      const f = snap.form || {};
+      qs("#me-location").value = f.location || "";
+      qs("#me-pinned").checked = f.pinned === true;
+      qs("#me-draft").checked = f.draft === true;
+      if (Array.isArray(f.tags)) {
+        state.tags.moment = [...f.tags];
+        drawTags("moment");
+      }
+      if (f.mood) {
+        moodRow.querySelectorAll(".mood-btn").forEach((b) => b.classList.toggle("active", b.dataset.icon === f.mood));
+      }
+      if (Array.isArray(snap.images)) {
+        state.momentImages = snap.images.map((i) => ({ ...i })).filter((i) => i?.src);
+        drawMomentImages();
+      }
+      if (snap.body) qs("#me-md").value = snap.body;
+      syncMomentSaveBtn();
+      const at = new Date(snap.savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+      autosave.showBanner(`已载入 ${at} 的自动保存草稿`, () => {});
+      autosave.lastSnapshot = JSON.stringify({ ...f, body: snap.body, images: snap.images });
+    }
+  }
 
   qs("#btn-upload-moment-image").addEventListener("click", () => qs("#me-file").click());
   qs("#me-file").addEventListener("change", (e) => handleUploadFiles(e.target.files, "moment"));
@@ -1409,6 +1449,11 @@ async function saveMoment(isNew) {
       toast(`${res.message}${res.commitUrl ? "，已推送 GitHub" : ""}`);
     }
     loadTaxonomies(); // 新写入的标签/分类即时进入候选池
+    if (isNew) {
+      // 新建发布成功：自动保存快照挂在 _new-<tempKey> 键，服务端按正式 id 吸收不到，
+      // best-effort 清理防孤儿暂存（e430a3b 孤儿清理语义自动化）；无则静默
+      fetch(`api/drafts/moment/_new-${state.current.moment.tempKey}`, { method: "DELETE" }).catch(() => {});
+    }
     // 发布成功后返回列表页（异步刷新标签池，不阻塞导航）
     renderMomentsList();
   } catch (err) {

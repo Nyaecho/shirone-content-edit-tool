@@ -30,14 +30,17 @@ export class AutosaveController {
     this.bannerEl = null;
     this._onBeforeUnload = () => {
       if (this.dirty) {
-        // 同步兜底：sendBeacon 发快照（不保证成功，尽力而为）
+        // 卸载兜底：fetch PUT + keepalive（后端只有 PUT /api/drafts/:kind/:id；
+        // 原先走 navigator 发 POST 恒 404，已废弃）。keepalive 保证 unload 后请求继续，尽力而为
         try {
           const payload = this.collect();
           const body = JSON.stringify({ form: payload.form, body: payload.body, images: payload.images, baseSha: payload.baseSha });
-          navigator.sendBeacon(
-            `api/drafts/${this.kind}/${encodeURIComponent(this.currentId())}`,
-            new Blob([body], { type: "application/json" }),
-          );
+          fetch(`api/drafts/${this.kind}/${encodeURIComponent(this.currentId())}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body,
+            keepalive: true,
+          }).catch(() => { /* 尽力而为 */ });
         } catch { /* 尽力而为 */ }
       }
     };

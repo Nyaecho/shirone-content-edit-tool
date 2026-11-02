@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { config, validateConfig, isDev } from "./lib/config.js";
 import { router } from "./routes/api.js";
 import { healthRouter } from "./routes/health.js";
-import { requireAuth } from "./lib/auth.js";
 import { dbConfigured } from "./lib/mihealth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,8 +28,7 @@ app.use(express.json({
 // 必须挂在 /api 之前：api router 内部的 requireAuth 才不会拦截 /api/health/*
 app.use("/api/health", healthRouter);
 // 凭证属配置文件范畴（MIHEALTH_DB 同目录 config.json，由运维放置）：
-// 写作台不再提供部署/续期向导，自动续期见 startAutoRenew；requireAuth 保留给下方 API
-void requireAuth;
+// 写作台不再提供部署/续期向导，自动续期见 startAutoRenew
 app.use("/api", router);
 
 // 静态资源

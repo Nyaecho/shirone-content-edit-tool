@@ -1,7 +1,7 @@
 /**
  * Markdown 扩展语法对话框：工具栏按钮 → <dialog> 表单 → 生成规范语法插入光标处。
  * 覆盖：admonition / field-group / collapse（折叠面板）/ tabs / code-tree / steps /
- *       video(bilibili|youtube|acfun|artplayer) / github-card / grid（图片画廊）/ include。
+ *       video(bilibili|youtube|acfun|artplayer) / github-card / grid（图片画廊）。
  * 原则：只生成语法文本，不做实时渲染预览（构建期渲染特性决定预览不真实）。
  */
 
@@ -347,27 +347,6 @@ export function mountDialogs({ toast }) {
           // 主题正统：容器名 grid（rehype-component-image-grid 只认 :::grid），
           // columns 引号形态与 manifest 示例同款
           return `:::grid{columns="${cols}"}\n${refs.map((r) => `![${r.split("/").pop()}](${r})`).join("\n")}\n:::`;
-        },
-      );
-    },
-
-    include(editor) {
-      dlg.open(
-        "Markdown 片段包含",
-        `${fieldHTML("片段路径", textInput("in-path", "如：../snippets/common-notice.md"))}
-         <div class="field-row">
-           ${fieldHTML("行号区间", textInput("in-lines", "可选，如：2-8"))}
-           ${fieldHTML("命名区域", textInput("in-region", "可选，如：public-api"))}
-         </div>`,
-        (root) => {
-          const p = root.querySelector("#in-path").value;
-          if (!p) { toast("请填写路径", true); return null; }
-          const lines = root.querySelector("#in-lines").value;
-          const region = root.querySelector("#in-region").value;
-          let suffix = "";
-          if (region) suffix = `#${region}`;
-          else if (lines) suffix = `{${lines}}`;
-          return `<!-- @include: ${p}${suffix} -->`;
         },
       );
     },

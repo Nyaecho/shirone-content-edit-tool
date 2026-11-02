@@ -7,7 +7,6 @@ import {
   parseMarkdown,
   buildMarkdown,
   momentFilePath,
-  momentAssetPath,
   mergeMomentFrontmatter,
   newMomentFrontmatter,
 } from "../lib/content.js";
@@ -66,12 +65,6 @@ export async function getMoment(id) {
     frontmatter: data,
     body,
   };
-}
-
-/** 动态图片 src（/images/albums/...）→ 仓库路径（public/images/albums/...） */
-function momentAssetPathFromSrc(src) {
-  const s = String(src || "").split("?")[0];
-  return s.startsWith("/") ? `public${s}` : s;
 }
 
 export async function createMoment(form, body, timeZone) {

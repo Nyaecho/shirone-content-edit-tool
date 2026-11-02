@@ -190,6 +190,13 @@ export async function getCategories() {
  * @param {{ index?: number, original?: object|null, item?: object|null }} payload
  */
 export async function mutateTimeline(op, { index, original, item } = {}) {
+  // op 先于节点定位校验：非法 op 在 locateItem 之前拒绝（否则误导为 409 并发冲突）
+  if (!["create", "update", "delete"].includes(op)) {
+    const err = new Error("op 必须为 create / update / delete");
+    err.status = 400;
+    throw err;
+  }
+
   const parsed = await parseTimelineFile();
   const items = parsed.items;
 
@@ -205,14 +212,9 @@ export async function mutateTimeline(op, { index, original, item } = {}) {
     items[idx] = clean;
     return commit(parsed, items, `edit(timeline): 更新节点 ${clean.title}`);
   }
-  if (op === "delete") {
-    const removed = items[idx];
-    items.splice(idx, 1);
-    return commit(parsed, items, `chore(timeline): 删除节点 ${removed?.title || ""}`);
-  }
-  const err = new Error("op 必须为 create / update / delete");
-  err.status = 400;
-  throw err;
+  const removed = items[idx];
+  items.splice(idx, 1);
+  return commit(parsed, items, `chore(timeline): 删除节点 ${removed?.title || ""}`);
 }
 
 /** 定位目标节点：先按下标校验快照一致，失败则全局搜索快照，均未命中返回 409 */

@@ -321,6 +321,9 @@ router.post("/posts", async (req, res) => {
 router.put("/posts/:slug", async (req, res) => {
   try {
     const { form, body } = req.body || {};
+    // 与 POST 同一 400 校验语义（空标题原走 merge 抛普通 Error → 500 误导）
+    const errors = postsService.validatePostInput(form || {}, { isNew: false });
+    if (errors.length) return res.status(400).json({ ok: false, error: errors.join("；") });
     const result = await postsService.updatePost(req.params.slug, form || {}, String(body || ""), config.siteTimezone);
     invalidateTaxonomies();
     await absorbAfterPush("post", result.slug, result, req.body?.stagedImages);

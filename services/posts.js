@@ -102,9 +102,12 @@ export async function getPost(slug) {
 
 export function validatePostInput(form, { isNew }) {
   const errors = [];
-  const slugErr = validateSlug(form.slug || "");
-  if (slugErr) errors.push(`slug 无效：${slugErr}`);
-  else if (isReservedSlug(form.slug)) errors.push(`slug "${form.slug}" 与核心路由冲突，请换一个`);
+  // slug 校验仅新建语境（update 的 slug 沿用旧值，form.slug 可为空，不可按空校验）
+  if (isNew) {
+    const slugErr = validateSlug(form.slug || "");
+    if (slugErr) errors.push(`slug 无效：${slugErr}`);
+    else if (isReservedSlug(form.slug)) errors.push(`slug "${form.slug}" 与核心路由冲突，请换一个`);
+  }
   if (!form.title || !String(form.title).trim()) errors.push("标题不能为空");
   return errors;
 }

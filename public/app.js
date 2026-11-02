@@ -26,9 +26,9 @@ let DIALOGS = {};
 
 const $app = document.getElementById("app");
 
-// 时间线数据（state.js 的 timelineData：cache + categories，保持本地别名兼容既有代码）
-const timelineCache = timelineData.cache;
-const timelineCategories = timelineData.categories;
+// 时间线数据：state.js 的 timelineData（单一事实源，属性可变）
+// 历史 bug：曾用 const 局部别名，列表赋值触发严格模式 TypeError 被吞掉，
+// 时间线视图整体瘫痪（打断 97b5575 在线编辑）——现全部直引 timelineData
 
 // ---------- Ctrl/Cmd+S 保存快捷键（document 级兜底，含 EasyMDE 外的 textarea/表单场景） ----------
 function saveShortcutHandler(e) {
@@ -485,8 +485,8 @@ async function renderTimelineList() {
   listEl.innerHTML = `<div class="empty">加载中…</div>`;
   try {
     const data = await api("/timeline");
-    timelineCache = data.items || [];
-    timelineCategories = data.categories || [];
+    timelineData.cache = data.items || [];
+    timelineData.categories = data.categories || [];
     drawTimeline();
   } catch (err) {
     listEl.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
@@ -498,11 +498,11 @@ function drawTimeline() {
   const q = document.getElementById("timeline-search").value.trim().toLowerCase();
 
   const catLabel = (key) => {
-    const c = timelineCategories.find((c) => c.key === key);
+    const c = timelineData.categories.find((c) => c.key === key);
     return c ? c.label : key;
   };
 
-  const items = timelineCache
+  const items = timelineData.cache
     .map((item, index) => ({ item, index })) // 保留原始下标供编辑器快照定位
     .filter(({ item }) => {
       if (!q) return true;
@@ -544,7 +544,7 @@ async function openTimelineEditor(index) {
   main.appendChild(document.getElementById("tpl-timeline-editor").content.cloneNode(true));
 
   const isNew = index == null;
-  const original = isNew ? null : timelineCache[index];
+  const original = isNew ? null : timelineData.cache[index];
   if (!isNew && !original) {
     toast("节点不存在，请返回列表刷新", true);
     renderTimelineList();
@@ -567,10 +567,10 @@ async function openTimelineEditor(index) {
   const catSel = qs("#te-category");
   catSel.innerHTML =
     `<option value="">（无分类）</option>` +
-    timelineCategories
+    timelineData.categories
       .map((c) => `<option value="${esc(c.key)}"${item.category === c.key ? " selected" : ""}>${esc(c.label || c.key)}</option>`)
       .join("");
-  if (!timelineCategories.length) {
+  if (!timelineData.categories.length) {
     const opt = document.createElement("option");
     opt.value = item.category || "";
     opt.textContent = item.category ? `${item.category}（yaml 未配置分类，保留原值）` : "（无分类）";

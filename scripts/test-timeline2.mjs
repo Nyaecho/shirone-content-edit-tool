@@ -4,7 +4,7 @@
  * 写操作返回 devDownload 产物（不落盘），恰好完整驱动解析→变更→序列化。
  *
  * 用法：在 shirone-admin 目录下：
- *   DEV_MODE=1 DEV_CONTENT_DIR=../Shirone-Content node scripts/test-timeline.mjs
+ *   DEV_MODE=1 DEV_CONTENT_DIR=../Shirone-Content node scripts/test-timeline2.mjs
  */
 import { parseTimelineFile, listTimeline, mutateTimeline } from "../services/timeline.js";
 

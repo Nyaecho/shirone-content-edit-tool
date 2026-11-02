@@ -1,20 +1,16 @@
 /**
  * 健康数据库清理脚本：删除 N 天前的行，控制库体积。
  *
- * 背景：mihealth-api（上游第三方仓库，保持原样不改）的 sync.py 只增不删，
- * 全量回填后库可达百 MB。博客只需要近 N 天（MIHEALTH_DAYS），本脚本在
- * cron 里跟在 sync 后面做窗口清理；云端始终保留全量历史，需要时用
- * `sync.py backfill --days N` 随时拉回。
+ * 背景：同步链路已内置到本仓库（9d70606 起零 cron、零 Python，mihealth-api
+ * 的 sync.py 不再参与），进程内自动增量只增不删，全量回填后库可达百 MB。
+ * 博客只需要近 N 天（MIHEALTH_DAYS），本脚本为库体积运维工具，按需手动执行；
+ * 云端始终保留全量历史，需要时用 mihealth-sync 的 backfill 模式随时拉回。
  *
  * 行为：
  *   - 删除 records 与 dedup 两表中 ts < cutoff 的行（同 (family,key) 索引顺序删）；
  *   - 行删除始终生效；VACUUM 收缩文件需要独占访问——管理平台常驻只读连接
  *     时会失败，属预期（行已删，空间在下次成功 VACUUM 时回收）；
  *   - 退出码：0 正常；1 参数/文件错误。
- *
- * cron 用法（跟在增量同步之后）：
- *   0 * * * *  cd /srv/mihealth-api && .venv/bin/python sync.py incremental \
- *              && node /srv/shirone-admin/scripts/prune-mihealth.mjs --keep-days 7
  *
  * 本地用法：node scripts/prune-mihealth.mjs --db path/to/mihealth.db --keep-days 7
  */

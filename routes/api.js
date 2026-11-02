@@ -464,7 +464,7 @@ router.put("/timeline", async (req, res) => {
  * - target: "post" | "moment"
  * - slug: 文章 slug（target=post 时必填）
  * - momentDate: 动态日期 YYYY-MM-DD（target=moment 时必填，回填时用已有 published 的前 10 位）
- * 草稿与发布同一存储：图片始终直接推仓库（草稿只是 md 的 draft 标记）
+ * （现行口径见下方路由体注释：上传一律只进暂存区，随「暂存/发布」推送搬运）
  */
 router.post("/upload", (req, res) => {
   upload.single("file")(req, res, async (err) => {

@@ -19,11 +19,11 @@ import {
 
 /** 列表 = 仓库全部文章（含 draft: true 草稿，前端按需过滤） */
 export async function listPosts() {
-  return listPublishedPosts();
+  return listAllPosts();
 }
 
-/** 仓库已发布文章列表（原 listPosts 主体） */
-async function listPublishedPosts() {
+/** 仓库全部文章列表（含 draft: true 草稿；listPosts 主体） */
+async function listAllPosts() {
   const tree = await store.listTree();
   const posts = new Map();
 

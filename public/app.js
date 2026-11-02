@@ -924,7 +924,7 @@ async function openPostEditor(slug) {
 
   const initial = post.body || "";
   // 预览时把文章内相对/根路径图片重写为 /api/asset 代理 URL，
- // 否则浏览器请求 admin 源站舍径拿不到图片（线上站点才有这些资源）
+  // 否则浏览器按相对路径请求 admin 源站拿不到图片（线上站点才有这些资源）
   const rewritePreviewImages = (html) => {
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
@@ -1340,6 +1340,18 @@ async function openMomentEditor(id) {
       autosave.showBanner(`已载入 ${at} 的自动保存草稿`, () => {});
       autosave.lastSnapshot = JSON.stringify({ ...f, body: snap.body, images: snap.images });
     }
+
+    // ---- 输入标脏布线（对齐 post/timeline：任何编辑变更都驱动 debounce 自动保存）----
+    // 文本/勾选经 input|change 冒泡；心情选中（class）、标签 chip 增删、九宫格与建议列表
+    // 重绘这类非输入型变更由 DOM 变更观察兜住。监听挂编辑器卡片（重入随 innerHTML 重建
+    // 销毁，不像 main 级委托那样跨重入叠加）；自动保存状态/横幅在卡片外，不会被自身 UI 更新触发。
+    const editorCard = qs(".moment-editor");
+    editorCard.addEventListener("input", () => autosave.markDirty());
+    editorCard.addEventListener("change", () => autosave.markDirty());
+    const domObserver = new MutationObserver(() => autosave.markDirty());
+    domObserver.observe(editorCard, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    qs("#btn-back").addEventListener("click", () => { autosave.destroy(); domObserver.disconnect(); });
+    qs("#btn-save-moment").addEventListener("click", () => { autosave.destroy(); domObserver.disconnect(); }, { once: true });
   }
 
   qs("#btn-upload-moment-image").addEventListener("click", () => qs("#me-file").click());
@@ -1364,6 +1376,7 @@ async function locateMe() {
   const fill = (data) => {
     qs("#me-location").value = data.place;
     hint.textContent = `已定位：${data.place}（${data.source === "ip" ? "IP 定位" : "浏览器定位"}）`;
+    state.current.autosave?.markDirty(); // property 赋值不触发 input/change，显式标脏
   };
   const finish = () => {
     btn.disabled = false;

@@ -90,8 +90,10 @@ healthRouter.get("/alert", async (req, res) => {
 		const credentialStale = Boolean(
 			renew.lastErrorAt && (!renew.lastOkAt || renew.lastOkAt < renew.lastErrorAt) && now - renew.lastErrorAt > 48 * 3600_000,
 		);
-		// 数据停滞判定：上次成功同步在 3 小时前（同步周期 1h，容忍 2 个周期抖动）
-		const syncStalled = Boolean(sync && sync.at && now - sync.at > 3 * 3600_000 && !sync.error === false);
+		// 数据停滞判定：上次成功同步在 3 小时前（同步周期 1h，容忍 2 个周期抖动）且当前无错误
+		// （历史 bug：`!sync.error === false` 运算符优先级解析为 (!sync.error)===false，
+		//  即 error 为真时子句才成立——与「无错误也无新数据」设计相反）
+		const syncStalled = Boolean(sync && sync.at && now - sync.at > 3 * 3600_000 && sync.error == null);
 		res.json({
 			ok: true,
 			data: {

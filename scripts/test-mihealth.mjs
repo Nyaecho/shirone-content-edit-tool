@@ -171,7 +171,7 @@ try {
 	check("缓存命中（generatedAt 相同）", snap2.generatedAt === snap.generatedAt);
 
 	const snap3 = await (await fetch(`http://127.0.0.1:${PORT}/api/health/snapshot?days=3`)).json();
-	check("?days=3 生效", snap3.days === 3 && snap3.steps.daily?.length === 3);
+	check("?days 被忽略（days 恒等 MIHEALTH_DAYS）", snap3.days === snap.days && snap3.steps.daily?.length === snap.steps.daily?.length);
 
 	const posts = await fetch(`http://127.0.0.1:${PORT}/api/posts`);
 	check("/api/posts 仍 401（认证边界未动）", posts.status === 401, String(posts.status));

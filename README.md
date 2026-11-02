@@ -53,7 +53,7 @@ GITHUB_BRANCH=main
 SITE_TIMEZONE=Asia/Shanghai
 DEV_MODE=0
 
-# 健康数据页（可选；配置后自动同步，向导上传凭证即可）
+# 健康数据页（可选；配置后自动同步，凭证由运维放置，见「小米凭证部署」）
 MIHEALTH_DB=/srv/shirone-admin/health-data/mihealth.db
 ```
 
@@ -186,7 +186,8 @@ POST   /api/upload           multipart 图片上传（target=post|moment）
 
 博客静态页 `/health/` 的运行时数据源。**数据同步内置于本服务**（自 mihealth-api
 完整移植：RC4-drop1024 签名加密客户端、时间窗翻页回填、水位增量、401 免密自愈、
-每小时进程内定时器），部署只需：`.env` 配 `MIHEALTH_DB` → 向导上传凭证 →
+每小时进程内定时器），部署只需：`.env` 配 `MIHEALTH_DB` → 运维放置凭证
+（`MIHEALTH_DB` 同目录 `config.json`，见下文）→
 自动建库自动回填自动增量，**零 cron 零 Python 依赖**。库与 mihealth-api
 完全同构（records/dedup/sync_state），可互换接管。
 
@@ -207,29 +208,16 @@ GET /api/health/snapshot   聚合快照：近 N 天步数(按站点时区日聚�
   云端保留全量，凭证在位时下次同步即按需拉回近段）。
 - 本地验证：`node scripts/test-mihealth.mjs`（mock 库快照断言）。
 
-### 小米凭证部署（需登录）
+### 小米凭证部署（运维配置文件）
 
-顶栏「♥ 健康凭证」按钮。**推荐通道：本地登录 + 上传**（小米 2FA 验证态绑定
-浏览器 cookie，服务器端无法跨客户端续接，实测 2026-10）：
+写作台不再提供凭证向导界面：凭证属配置文件范畴，由运维放置在
+`MIHEALTH_DB` 同目录 `config.json`（600，与 mihealth-api 同构）：
 
 1. 本机 mihealth-api 目录运行 `python login.py --user <账号> --password <密码>`
    （或已登录态 `python login.py --refresh`），生成/更新 `config.json`；
-2. 向导里粘贴 config.json **全文** → 「上传 / 登录」→ 凭证写入
-   `MIHEALTH_DB` 同目录 `config.json`（600，与 mihealth-api 同构）；
-3. 日常续期：向导「⟳ 免密续期」一键换新（pass_token 有效期约 1~2 个月），
-   无需再走登录。
-
-备用通道（折叠区）：服务器上直接账号密码登录（图片验证码行内重试；
-2FA 官方页人工验证后 resume——该通道受小米验证态 cookie 绑定限制，
-不保证可用）。
-
-```
-GET  /api/mi-login/status    凭证概况（脱敏：是否部署/凭证年龄/有无 passToken）
-POST /api/mi-login/upload    上传凭证 JSON（config.json 全文，校验必需字段）
-POST /api/mi-login/password  备用：服务器账号密码登录（captcha/2fa 分步返回）
-POST /api/mi-login/resume    备用：官方页人工验证后服务端续接
-POST /api/mi-login/refresh   pass_token 免密续期
-```
+2. 将 `config.json` 放置到服务器 `MIHEALTH_DB` 同目录（权限 600）；
+3. 凭证就位后服务自动建库/回填/增量同步；日常续期为进程内每日自动
+   （会话超 14 天自动 pass_token 免密续期并写回，无需人工干预）。
 
 ## 安全注意事项
 

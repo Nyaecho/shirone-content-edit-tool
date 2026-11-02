@@ -17,6 +17,7 @@
  * - 视频 :::video 或 <Video /> 语法保留原始标记（近似提示框）
  * - ==高亮==、:spoiler[文本]
  */
+import { esc } from "./utils.js";
 
 // marked 渲染器注入点：把扩展语法转为 HTML 块，剩余交给 marked
 export function renderExtendedSyntax(src) {
@@ -182,8 +183,4 @@ function renderContainer(kind, attrs, body) {
       // 未知容器：保留标记但加样式提示，避免裸 ::: 文本
       return `<div class="ext-unknown"><p class="ext-adm-title">扩展容器：${esc(kind || "未命名")}</p>\n${body}\n</div>`;
   }
-}
-
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

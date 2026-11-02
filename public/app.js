@@ -14,7 +14,7 @@ import { AutosaveController, restoreDraft } from "./autosave.js";
 import { attachInlineImages } from "./inline-images.js";
 import { renderExtendedSyntax } from "./ext-preview.js";
 import { MOODS, moodSvg } from "./moods.js";
-import { qs, esc, assetUrl, suggestSlug, suggestSuffix, triggerDownload, wrapInline, insertBlock } from "./utils.js";
+import { qs, esc, assetUrl, suggestSlug, suggestSuffix, triggerDownload, wrapInline, insertBlock, postSrcToRepoPath, siteSrcToRepoPath } from "./utils.js";
 import { api, toast } from "./api-client.js";
 import { state, timelineData } from "./state.js";
 import { loadTaxonomies, fillCategoryOptions, drawTagSuggestions, addTag, drawTags } from "./tags.js";
@@ -931,13 +931,7 @@ async function openPostEditor(slug) {
     for (const img of tpl.content.querySelectorAll("img[src]")) {
       const src = img.getAttribute("src");
       if (/^(https?:|data:|blob:)/i.test(src)) continue; // 外链/dataURL 不动
-      let repoPath;
-      if (src.startsWith("./") || !src.startsWith("/")) {
-        repoPath = `content/posts/${post.slug}/${src.replace(/^\.?\//, "")}`;
-      } else {
-        repoPath = `public${src.split("?")[0]}`;
-      }
-      img.setAttribute("src", assetUrl(repoPath));
+      img.setAttribute("src", assetUrl(postSrcToRepoPath(src, post.slug)));
     }
     return tpl.innerHTML;
   };
@@ -1069,12 +1063,7 @@ async function openPostEditor(slug) {
 
   // 行内图片：图片引用行下方挂缩略图（src 解析与 rewritePreviewImages 同套规则）
   const inlineImages = attachInlineImages(mde, {
-    repoPathOf: (src) => {
-      if (src.startsWith("./") || !src.startsWith("/")) {
-        return `content/posts/${post.slug}/${src.replace(/^\.?\//, "")}`;
-      }
-      return `public${src.split("?")[0]}`;
-    },
+    repoPathOf: (src) => postSrcToRepoPath(src, post.slug),
   });
   state.editors.postInlineImages = inlineImages;
 
@@ -1444,7 +1433,7 @@ async function saveMoment(isNew) {
   const body = qs("#me-md").value;
   // 动态图片随推送提交（九宫格在 frontmatter，无法从正文提取，靠 stagedImages 搬运）
   const payload = { form, body, stagedImages: state.momentImages.map((i) => ({
-    repoPath: String(i.src || "").startsWith("/") ? `public${String(i.src).split("?")[0]}` : String(i.src || ""),
+    repoPath: siteSrcToRepoPath(i.src),
   })) };
   const btn = qs("#btn-save-moment");
   const isDraft = form.draft === true;

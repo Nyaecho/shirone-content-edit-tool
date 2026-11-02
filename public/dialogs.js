@@ -4,6 +4,7 @@
  *       video(bilibili|youtube|acfun|artplayer) / github-card / grid（图片画廊）。
  * 原则：只生成语法文本，不做实时渲染预览（构建期渲染特性决定预览不真实）。
  */
+import { siteSrcToRepoPath } from "./utils.js";
 
 const dialog = () => document.getElementById("dlg");
 
@@ -322,7 +323,7 @@ export function mountDialogs({ toast }) {
     imageGrid(editor, { images = [] } = {}) {
       // 缩略图走 api/asset 代理（相对路径叠加，反代子路径下同样成立）
       const assetUrl = (img) =>
-        `api/asset?path=${encodeURIComponent(img.repoPath || (String(img.src || "").startsWith("/") ? `public${String(img.src).split("?")[0]}` : img.src || ""))}`;
+        `api/asset?path=${encodeURIComponent(img.repoPath || siteSrcToRepoPath(img.src))}`;
       const checkboxes = images.length
         ? images
             .map(

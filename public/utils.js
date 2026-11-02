@@ -17,6 +17,23 @@ export function assetUrl(repoPath) {
   return `api/asset?path=${encodeURIComponent(repoPath)}`;
 }
 
+/** 文章图片 src → 仓库路径：相对路径（./x 或不以 / 开头）按文章资产目录
+ *  content/posts/<slug>/x 解析；站点根绝对路径（/images/...）映射 public/ 前缀
+ *  并剥掉 query 串。预览改写与行内图片预览共用同一套规则。 */
+export function postSrcToRepoPath(src, slug) {
+  if (src.startsWith("./") || !src.startsWith("/")) {
+    return `content/posts/${slug}/${src.replace(/^\.?\//, "")}`;
+  }
+  return `public${src.split("?")[0]}`;
+}
+
+/** 图片 src → 仓库路径（动态/画廊口径）：站点根绝对路径（/...）映射 public/ 前缀
+ *  并剥 query 串；相对路径原样返回（动态无文章资产目录概念）。 */
+export function siteSrcToRepoPath(src) {
+  const s = String(src || "");
+  return s.startsWith("/") ? `public${s.split("?")[0]}` : s;
+}
+
 /** 中文标题 → slug 建议（非 ASCII 字符折叠为连字符） */
 export function suggestSlug(title) {
   return String(title)

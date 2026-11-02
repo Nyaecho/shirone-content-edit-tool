@@ -4,6 +4,7 @@
  * 草稿即仓库文件：draft: true 与发布内容同路径存储，仓库为唯一事实源。
  */
 import * as store from "../lib/store.js";
+import { pooled } from "../lib/concurrency.js";
 import {
   parseMarkdown,
   buildMarkdown,
@@ -226,17 +227,3 @@ function formatDate(v) {
   return String(v).slice(0, 10);
 }
 
-/** 简易并发池 */
-async function pooled(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const idx = next++;
-      results[idx] = await fn(items[idx], idx);
-    }
-  }
-  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
-  await Promise.all(workers);
-  return results;
-}

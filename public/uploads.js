@@ -1,7 +1,7 @@
 /**
  * 图片上传链路：编辑器拖拽/粘贴/按钮上传 + 文章已传图清单 + 封面图覆盖式上传。
  */
-import { qs, assetUrl, esc } from "./utils.js";
+import { qs, assetUrl, esc, siteSrcToRepoPath } from "./utils.js";
 import { api, toast } from "./api-client.js";
 import { state } from "./state.js";
 import { insertAtCursor } from "./utils.js";
@@ -60,9 +60,7 @@ export function drawMomentImages() {
     const cell = document.createElement("div");
     cell.className = "mi-cell";
     // src 为站点根路径（/images/albums/...）→ 转仓库路径走代理预览
-    const repoPath = String(img.src || "").startsWith("/")
-      ? `public${String(img.src).split("?")[0]}`
-      : String(img.src || "");
+    const repoPath = siteSrcToRepoPath(img.src);
     cell.innerHTML = `<img src="${assetUrl(repoPath)}" alt="${esc(img.alt || "")}" loading="lazy" />
       <button type="button" class="mi-remove" title="移除">×</button>`;
     cell.querySelector(".mi-remove").addEventListener("click", () => {

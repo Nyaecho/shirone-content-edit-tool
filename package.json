@@ -9,7 +9,7 @@
     "dev": "node --env-file=.env.development server.js"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "express": "^4.19.2",

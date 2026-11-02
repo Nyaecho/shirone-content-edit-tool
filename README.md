@@ -206,7 +206,6 @@ git reset --hard <commit>
 公开（无 Cookie 认证）：
 POST   /api/login                        登录 { password }（失败限速：10 次锁 15 分钟）
 POST   /api/logout                       登出
-GET    /api/session                      模式探针（遗留端点，前端未消费）
 POST   /api/deploy/hook                  部署受理（X-Signature 签名，Actions 调用）
 GET    /api/deploy/hook?ticket=          部署回执轮询（同样验签）
 GET    /api/health/status                健康库配置与各数据键覆盖情况（运维排查）

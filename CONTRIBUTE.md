@@ -150,8 +150,6 @@ fixture 清单。用法约定：
 登记在案、暂不处理的事项（动它们之前先与 owner 确认）：
 
 - **`.tmp-cred2/`**：mock 凭证遗留（仅一个 `config.json`），全仓零代码引用，待 owner 决定删除
-- **`GET /api/session`**：已注册但前端零消费的遗留端点（返回固定 `authenticated: false`
-  + `devMode`）；下轮清理候选，删除时按「变更纪律 6」同步文档
 - **`GET /api/asset` 长缓存**：响应带 `Cache-Control: private, max-age=86400`——文件名含
   内容 hash，正常换图 = 新文件名无影响；**同名替换图片**时浏览器 24h 内可能命中旧缓存，
   替换图片请使用新文件名

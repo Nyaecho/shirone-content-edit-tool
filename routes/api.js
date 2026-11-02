@@ -47,10 +47,6 @@ router.post("/logout", (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/session", (req, res) => {
-  res.json({ ok: true, data: { authenticated: false, devMode: isDev() } });
-});
-
 // ---------- 部署 webhook（主题仓 Actions 调用，HMAC 签名认证，不走 Cookie） ----------
 
 // 原始请求体由 server.js 全局 express.json 的 verify 回调捕获（req.rawBody）。

@@ -182,10 +182,11 @@ export function mountDialogs({ toast }) {
             const lang = inputs[1].value.trim() || "text";
             const code = inputs[2].value;
             if (!label) continue;
-            parts.push(`== ${label}\n\`\`\`${lang}\n${code}\n\`\`\`\n`);
+            // 主题正统语法（option-groups）：::: tabs + @tab 标签行（#id 可选，这里不生成）
+            parts.push(`@tab ${label}\n\`\`\`${lang}\n${code}\n\`\`\`\n`);
           }
           if (!parts.length) { toast("至少一个标签页", true); return null; }
-          return `:::tabs\n${parts.join("\n")}:::`;
+          return `::: tabs\n${parts.join("\n")}:::`;
         },
       );
       bindAddRow("tb-rows", "tb-add", () => {

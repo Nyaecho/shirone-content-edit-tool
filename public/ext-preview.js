@@ -5,12 +5,12 @@
  * - 扩展语法不显示为原始 ::: 文本
  * - 图片/结构/颜色语义与站点风格接近
  *
- * 覆盖语法（与 dialogs.js 生成端互逆）：
- * - :::tip / info / warning / danger / note 容器（含标题）
+ * 覆盖语法（与 dialogs.js 生成端互逆，均对齐主题仓 manifest 正统）：
+ * - :::tip / info / note / important / warning / caution / details 容器（含标题）
  * - :::image-grid{columns=N} 图片画廊
- * - :::collapse-panel 折叠面板（:::summary 标题行）
- * - :::steps 步骤条
- * - :::tabs + ===="标签" 标签页
+ * - :::collapse-panel{title="..."} 折叠面板（标题读容器属性）
+ * - :::steps 步骤条（有序列表项，粗体作标题）
+ * - ::: tabs + @tab 标签 行标签页
  * - :::code-tree 代码树（近似缩进树）
  * - :::field-group 字段参数卡片
  * - :::github-card GitHub 仓库卡片（外链近似）
@@ -40,7 +40,8 @@ function transformContainers(text) {
 
   while (i < lines.length) {
     const line = lines[i];
-    const open = line.match(/^(:{3,})([\w-]+)?(\{[^}]*\})?\s*$/);
+    // 容器名前允许空格（主题正统 tabs 为 `::: tabs[#id]` 形态）
+    const open = line.match(/^(:{3,})\s*([\w-]+)?(\{[^}]*\})?\s*$/);
     if (!open) {
       out.push(line);
       i++;
@@ -85,9 +86,13 @@ function renderContainer(kind, attrs, body) {
     case "tip":
     case "info":
     case "note":
+    case "important":
     case "warning":
+    case "caution":
+    case "details":
     case "danger": {
-      const titles = { tip: "提示", info: "信息", note: "备注", warning: "警告", danger: "危险" };
+      // 类型集合对齐主题 remark-admonitions（7 类）；danger 为历史兼容保留
+      const titles = { tip: "提示", info: "信息", note: "备注", important: "重要", warning: "警告", caution: "注意", details: "详情", danger: "危险" };
       const title = attrValue(attrs, "title") || titles[kind] || kind;
       return `<div class="ext-admonition ext-${kind}"><p class="ext-adm-title">${esc(title)}</p>\n${body}\n</div>`;
     }
@@ -99,39 +104,36 @@ function renderContainer(kind, attrs, body) {
       return `<div class="ext-image-grid" style="--ext-cols:${esc(cols)}">${imgs}</div>`;
     }
     case "collapse-panel": {
-      // :::summary 标题行 + 其余内容
-      const m = body.match(/^:::summary\s*(.+?)\s*$/m);
-      const title = m ? m[1] : "折叠内容";
-      const rest = m ? body.replace(/^:::summary\s*.+\s*$/m, "") : body;
-      return `<details class="ext-collapse"><summary>${esc(title)}</summary>\n${rest}\n</details>`;
+      // 容器属性 title 优先（dialogs 生成 :::collapse-panel{title="..."}），缺失回退默认
+      const title = attrValue(attrs, "title") || "折叠内容";
+      return `<details class="ext-collapse"><summary>${esc(title)}</summary>\n${body}\n</details>`;
     }
     case "steps": {
-      // 步骤以 ### 标题或 **加粗** 行分界；近似按标题拆
-      const parts = body.split(/\n(?=###?\s)/).filter(Boolean);
+      // 按有序列表项（`1.` / `1)` 行）拆分；项内粗体作标题（dialogs 生成 `1. **标题**`+缩进描述）
+      const parts = body.split(/(?=^\s*\d+[.)]\s)/m).filter((p) => p.trim());
       const items = parts
         .map((p) => {
-          const hm = p.match(/^###?\s*(.+)$/m);
-          const title = hm ? hm[1] : "步骤";
-          const content = hm ? p.replace(/^###?\s*.+$\n?/m, "") : p;
-          return `<li><p class="ext-step-title">${title}</p>\n${content}\n</li>`;
+          const firstLine = p.match(/^\s*\d+[.)]\s+(.+)$/m);
+          const bm = firstLine?.[1]?.match(/\*\*(.+?)\*\*/);
+          const title = bm ? bm[1] : firstLine?.[1]?.replace(/\*\*/g, "") || "步骤";
+          const content = p.replace(/^\s*\d+[.)]\s+.+\n?/m, "").trim();
+          return `<li><p class="ext-step-title">${esc(title)}</p>\n${content}\n</li>`;
         })
         .join("");
       return `<ol class="ext-steps">${items}</ol>`;
     }
     case "tabs": {
-      const tabs = [...body.matchAll(/^====\s*"([^"]+)"\s*$/gm)];
+      // 主题正统 @tab 行分标签（对齐 dialogs.js 生成端与主题 rehype-option-groups）
+      const tabs = [...body.matchAll(/^@tab(?::active)?\s+(.+?)\s*(?:#([\w-]+))?\s*$/gm)];
       if (!tabs.length) return `<div class="ext-tabs-raw"><pre>${esc(body)}</pre></div>`;
       let html = '<div class="ext-tabs">';
-      let last = 0;
       tabs.forEach((m, idx) => {
         const start = m.index + m[0].length;
         const end = idx + 1 < tabs.length ? tabs[idx + 1].index : body.length;
         const content = body.slice(start, end).trim();
         html += `<div class="ext-tab"><p class="ext-tab-label">${esc(m[1])}</p>\n${content}\n</div>`;
-        last = end;
       });
       html += "</div>";
-      void last;
       return html;
     }
     case "code-tree": {

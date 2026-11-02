@@ -1,7 +1,7 @@
 /**
  * Markdown 扩展语法对话框：工具栏按钮 → <dialog> 表单 → 生成规范语法插入光标处。
- * 覆盖：admonition / field-group / collapse-panel / tabs / code-tree / steps /
- *       video(bilibili|youtube|acfun|artplayer) / github-card / image-grid / include。
+ * 覆盖：admonition / field-group / collapse（折叠面板）/ tabs / code-tree / steps /
+ *       video(bilibili|youtube|acfun|artplayer) / github-card / grid（图片画廊）/ include。
  * 原则：只生成语法文本，不做实时渲染预览（构建期渲染特性决定预览不真实）。
  */
 
@@ -159,7 +159,10 @@ export function mountDialogs({ toast }) {
           const title = root.querySelector("#cp-title").value || "详情";
           const content = root.querySelector("#cp-content").value;
           if (!content) { toast("内容不能为空", true); return null; }
-          return `:::collapse-panel{title="${title}"}\n${content}\n:::`;
+          // 主题正统（rehype-collapse-panels）：容器内一个无序列表，每项 = `- 标题` 行 +
+          // 缩进正文；不带 accordion/expand、不带 :+ 标记 → 单面板默认收起
+          const indented = content.split("\n").map((l) => (l.trim() ? `  ${l}` : l)).join("\n");
+          return `::: collapse\n- ${title}\n\n${indented}\n:::`;
         },
       );
     },
@@ -341,7 +344,9 @@ export function mountDialogs({ toast }) {
           const refs = [...root.querySelectorAll("input[data-ref]:checked")].map((cb) => cb.value);
           if (!refs.length) { toast("请勾选图片", true); return null; }
           const cols = root.querySelector("#ig-cols").value;
-          return `:::image-grid{columns=${cols}}\n${refs.map((r) => `![${r.split("/").pop()}](${r})`).join("\n")}\n:::`;
+          // 主题正统：容器名 grid（rehype-component-image-grid 只认 :::grid），
+          // columns 引号形态与 manifest 示例同款
+          return `:::grid{columns="${cols}"}\n${refs.map((r) => `![${r.split("/").pop()}](${r})`).join("\n")}\n:::`;
         },
       );
     },

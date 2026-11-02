@@ -7,8 +7,8 @@
  *
  * 覆盖语法（与 dialogs.js 生成端互逆，均对齐主题仓 manifest 正统）：
  * - :::tip / info / note / important / warning / caution / details 容器（含标题）
- * - :::image-grid{columns=N} 图片画廊
- * - :::collapse-panel{title="..."} 折叠面板（标题读容器属性）
+ * - :::grid{columns="N"} 图片画廊（历史 :::image-grid 已废弃，走未知容器兜底）
+ * - ::: collapse 无序列表折叠面板（每项 `- 标题` + 缩进正文；历史 :::collapse-panel 已废弃）
  * - :::steps 步骤条（有序列表项，粗体作标题）
  * - ::: tabs + @tab 标签 行标签页
  * - :::code-tree 代码树（近似缩进树）
@@ -40,8 +40,9 @@ function transformContainers(text) {
 
   while (i < lines.length) {
     const line = lines[i];
-    // 容器名前允许空格（主题正统 tabs 为 `::: tabs[#id]` 形态）
-    const open = line.match(/^(:{3,})\s*([\w-]+)?(\{[^}]*\})?\s*$/);
+    // 容器名前允许空格（主题正统 tabs 为 `::: tabs[#id]` 形态）；
+    // 名后允许空格标志词（collapse 正统的 accordion/expand），并入属性串供 attrValue/hasFlag 判定
+    const open = line.match(/^(:{3,})\s*([\w-]+)?(\{[^}]*\})?((?:\s+[\w-]+)*)\s*$/);
     if (!open) {
       out.push(line);
       i++;
@@ -49,7 +50,7 @@ function transformContainers(text) {
     }
     const fence = open[1];
     const kind = (open[2] || "").toLowerCase();
-    const attrs = open[3] || "";
+    const attrs = `${open[3] || ""} ${open[4] || ""}`.trim();
 
     // 找匹配的关闭 fence（同长度以上）
     let j = i + 1;
@@ -80,6 +81,11 @@ function attrValue(attrs, key) {
   return m ? m[1] : null;
 }
 
+/** 裸标志词判定（主题 collapse 的 `::: collapse accordion` 空格词形态，与 key=value 等价） */
+function hasFlag(attrs, key) {
+  return new RegExp(`(?:^|\\s)${key}(?=\\s|$)`).test(attrs);
+}
+
 function renderContainer(kind, attrs, body) {
   // 内部可能嵌套 markdown：交给调用方的 markdown 二次渲染（renderExtended 的输出会过 marked）
   switch (kind) {
@@ -96,17 +102,43 @@ function renderContainer(kind, attrs, body) {
       const title = attrValue(attrs, "title") || titles[kind] || kind;
       return `<div class="ext-admonition ext-${kind}"><p class="ext-adm-title">${esc(title)}</p>\n${body}\n</div>`;
     }
-    case "image-grid": {
+    case "grid": {
+      // 主题正统：容器名 grid（rehype-component-image-grid 只认 :::grid）；历史 :::image-grid 已废弃
       const cols = attrValue(attrs, "columns") || 3;
       const imgs = [...body.matchAll(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g)]
         .map((m) => `<figure><img src="${esc(m[2])}" alt="${esc(m[1])}" loading="lazy" /></figure>`)
         .join("");
       return `<div class="ext-image-grid" style="--ext-cols:${esc(cols)}">${imgs}</div>`;
     }
-    case "collapse-panel": {
-      // 容器属性 title 优先（dialogs 生成 :::collapse-panel{title="..."}），缺失回退默认
-      const title = attrValue(attrs, "title") || "折叠内容";
-      return `<details class="ext-collapse"><summary>${esc(title)}</summary>\n${body}\n</details>`;
+    case "collapse": {
+      // 主题正统（rehype-collapse-panels）：容器内一个无序列表，每项 = `- 标题` 行 +
+      // 缩进正文；accordion/expand 为空格标志词或 key=value；`:+`/`:-` 行首标记
+      // 控制展开/收起（open 判定与主题 renderItem 一一对应）。
+      // 历史 :::collapse-panel 已废弃，不再特判（走未知容器兜底）
+      const accordion = hasFlag(attrs, "accordion") || attrValue(attrs, "accordion") === "true";
+      const expand = hasFlag(attrs, "expand") || attrValue(attrs, "expand") === "true";
+      const panels = [];
+      for (const line of body.split("\n")) {
+        const item = line.match(/^\s*-\s+(.+)$/);
+        if (item) {
+          const raw = item[1];
+          const marker = raw.match(/^:([+-])(?:[\t ]+|$)/)?.[1] || null;
+          const titleText = raw.replace(/^:([+-])(?:[\t ]+|$)/, "").trim();
+          panels.push({ title: titleText || "折叠面板", body: [], marker });
+        } else if (panels.length && line.trim()) {
+          panels[panels.length - 1].body.push(line.replace(/^ {2}/, ""));
+        }
+      }
+      if (!panels.length) return `<div class="ext-unknown"><p class="ext-adm-title">扩展容器：collapse</p>\n${body}\n</div>`;
+      const markedIdx = panels.findIndex((p) => p.marker === "+");
+      return panels
+        .map((p, idx) => {
+          const open = accordion
+            ? idx === (markedIdx >= 0 ? markedIdx : expand ? 0 : -1)
+            : p.marker === "+" || (expand && p.marker !== "-");
+          return `<details class="ext-collapse"${open ? " open" : ""}><summary>${esc(p.title)}</summary>\n${p.body.join("\n")}\n</details>`;
+        })
+        .join("\n");
     }
     case "steps": {
       // 按有序列表项（`1.` / `1)` 行）拆分；项内粗体作标题（dialogs 生成 `1. **标题**`+缩进描述）

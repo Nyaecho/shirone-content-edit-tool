@@ -8,7 +8,7 @@
 app.js（视图层主体：登录/外壳/三列表/三编辑器/快捷键）
  ├─ api-client.js   API 请求封装 + toast 提示
  ├─ state.js        全局运行时状态（state 单例 + timelineData）
- ├─ utils.js        纯工具：qs/esc/assetUrl/slug 建议/插入光标/下载触发
+ ├─ utils.js        纯工具：qs/esc/assetUrl/slug 建议/插入光标/下载触发/图片路径解析
  ├─ tags.js         标签输入与候选复用 + 分类自绘候选
  ├─ uploads.js      图片上传链路（正文图/九宫格/封面覆盖式组件）
  ├─ pin-bottom.js   卡片钉底控制器（三编辑器统一）
@@ -19,10 +19,15 @@ app.js（视图层主体：登录/外壳/三列表/三编辑器/快捷键）
  └─ dialogs.js      扩展语法插入对话框（表单 → 语法文本）
 ```
 
+二级依赖（全部单向，无环）：api-client / dialogs / ext-preview / tags / uploads /
+pin-bottom 直接依赖 utils；tags 与 uploads 另依赖 api-client 与 state。
+共享状态只放 state.js——其他模块不得保存可变共享副本（历史教训：const 别名
+`timelineCache` 重赋值瘫痪时间线视图，见 git 5cb740d）。
+
 ## 后端模块（server.js 入口）
 
 ```
-server.js            Express 挂载：/api（认证路由）+ /api/health（公开）+ 静态托管
+server.js            Express 挂载：/api/health（公开，先于 /api）+ /api + 静态托管
 routes/api.js        认证/文章/动态/时间线/上传/草稿暂存 CRUD/同步/部署
 routes/health.js     健康数据快照（公开只读）+ /alert 警示点
 services/posts.js    文章业务（列表/详情/创建/更新/删除）
@@ -34,9 +39,15 @@ lib/auth.js          HMAC Cookie 认证 + 限速
 lib/store.js         存储统一出口（生产 GitHub+镜像 / DEV 本地 fs）
 lib/staging.js       服务器暂存层（草稿快照 + 图片 + 引用计数 + 吸收搬运）
 lib/github.js        GitHub Contents API 封装
+lib/dev-store.js     DEV 存储适配器（读本地 fs，写转下载）
 lib/mirror-store.js  仓库磁盘镜像
 lib/sync.js          镜像同步（tarball 拉取解压）
 lib/content.js       frontmatter 生成/解析/合并（时间注入核心规则）
+lib/image-staging.js DEV 模式内存图片暂存（TTL 2h）
+lib/concurrency.js   并发池 pooled()（posts/moments 共用）
+lib/deploy.js        部署 webhook（HMAC 验签 + 服务器 git 拉取 + ticket 状态）
+lib/geocode.js       逆地理编码（GPS 走 nominatim/amap，缺省 IP 兜底 ip-api）
+lib/draft-store.js   旧 .drafts/ 草稿一次性迁移（遗留，迁移完可删）
 lib/mihealth*.js     健康数据同步与凭证续期（自动定时，不经写作台）
 ```
 
@@ -69,7 +80,7 @@ lib/mihealth*.js     健康数据同步与凭证续期（自动定时，不经�
 - **新工具栏按钮**：`app.js` 的 EasyMDE `toolbar` 数组；图标用 **FA4** 合法类名
   （FA5 名如 `fa-highlighter` 不存在，会渲染空白）
 - **新扩展语法**：生成端 `dialogs.js`；预览端 `ext-preview.js` 加渲染分支
-- **新编辑器视图**：`index.html` 加 template + `app.js` 渲染函数 + 侧栏导航按钮
+- **新编辑器视图**：`index.html` 加 template + `app.js` 渲染函数 + 顶部导航按钮
 - **新 API**：`routes/api.js` 加路由；前端统一走 `api-client.js` 的 `api()`
 
 ## 断点体系（public/style.css）

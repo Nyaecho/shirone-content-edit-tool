@@ -1,166 +1,157 @@
-# 贡献指南与架构导览
+# 开发规范（CONTRIBUTE）
 
-面向想在 shirone-admin 上做开发的贡献者。读完本文你应该能回答三个问题：**代码在哪里、请求怎么流、改动要动哪些文件**。
+面向在 shirone-admin（仓库目录 `shirone-content-edit-tool`）上做开发的贡献者。
+本文是**规范与流程**的单一来源；架构/模块/数据流事实归 [docs/architecture.md](./docs/architecture.md)，
+用户功能与操作归 [README.md](./README.md)——本文只引用不复写。
 
-## 项目定位
+## 1. 项目定位
 
-Shirone 博客内容仓的在线写作工具：浏览器表单化编写文章/动态 → 服务端生成规范 Markdown → 经 GitHub Contents API 推送内容仓。服务器不做任何构建（构建由主题代码仓的 GitHub Actions 完成）。
+Shirone 博客内容仓的在线写作工具：浏览器表单化编写文章/动态/时间线 → 服务端生成规范
+Markdown → 经 GitHub Contents API 推送内容仓。服务器不做任何构建（构建由主题代码仓的
+GitHub Actions 完成）。零构建 vanilla ESM 前端，后端运行时依赖仅 5 个
+（express / gray-matter / yaml / multer / jszip）。功能全貌见 README「特性」。
 
-- **零构建**：纯 Node.js ESM（`node server.js` 直接跑），前端 vanilla ESM 无框架无打包器
-- **运行时依赖仅 5 个**：express / gray-matter / yaml / multer / jszip
-
-## 目录结构速查
-
-```
-shirone-admin/
-├── server.js            入口：Express 挂载 + 静态托管 + SPA 兜底 + 启动校验
-├── routes/
-│   └── api.js           全部 HTTP 端点（唯一路由文件）
-├── services/            业务层（列表/详情/增删改查的编排）
-│   ├── posts.js         文章
-│   ├── moments.js       动态
-│   └── taxonomy.js      标签/分类聚合（生产模式带磁盘缓存）
-├── lib/                 基础设施（与业务无关的能力层）
-│   ├── config.js        环境配置读取与校验（改配置项先看这里）
-│   ├── auth.js          单密码认证 + HMAC Cookie + 登录限速
-│   ├── store.js         ★ 存储统一出口（读镜像/写 GitHub 的分流全在这）
-│   ├── github.js        GitHub Contents API 封装（生产存储）
-│   ├── dev-store.js     DEV 存储适配器（读本地 fs、写转下载）
-│   ├── mirror-store.js  本地镜像的磁盘读写（防路径穿越、写后回写）
-│   ├── sync.js          tarball 拉取 + 流式解压 + 原子替换镜像
-│   ├── content.js       ★ 内容格式核心（frontmatter 生成/解析/合并、时间注入、路径计算）
-│   ├── image-staging.js DEV 模式内存图片暂存
-│   ├── draft-store.js   已退役的旧草稿迁移工具（可安全忽略）
-│   ├── deploy.js        部署 webhook（HMAC 验签 + 服务器 git 拉取）
-│   └── geocode.js       逆地理编码（nominatim/amap）
-├── public/              前端（零构建，直接静态托管）
-│   ├── index.html       全部视图的 <template> + 对话框/顶灯 DOM
-│   ├── app.js           ★ 前端主逻辑（视图切换、编辑器、上传、标签、同步）
-│   ├── dialogs.js       Markdown 扩展语法对话框（10+ 种插入表单）
-│   ├── style.css        全部样式（Material 风格、深浅色跟随系统）
-│   └── vendor/          EasyMDE 等第三方库
-├── deploy/              systemd 服务文件
-└── tests/               参见主题仓 CI 说明
-```
-
-带 ★ 的三个文件是改动最频繁的位置。
-
-## 分层架构
-
-```
-浏览器（public/app.js）
-   │  fetch /api/*（JSON；上传为 multipart）
-   ▼
-routes/api.js            认证 → 参数校验 → 调 service → 统一 { ok, data } 包装
-   ▼
-services/*               业务编排：路径计算、frontmatter 合并、冲突检测
-   ▼
-lib/store.js             存储统一出口（一行 if 分流 DEV / 生产）
-   ├─ DEV：dev-store.js  读本地内容仓 fs；写返回 devDownload → 路由层转浏览器下载
-   └─ 生产：
-       ├─ 读：mirror-store.js（本地镜像优先，未命中回退 github.js）
-       └─ 写：github.js（推 Contents API）→ 成功后回写 mirror-store.js
-```
-
-关键约定：
-
-1. **路由层只 import `lib/store.js`**，永不直接碰 github.js / dev-store.js
-2. **所有内容格式规则集中在 `lib/content.js`**（frontmatter 合并策略、时间注入、slug 校验、路径计算）——改格式先读该文件头部的时间语义注释
-3. **服务无状态镜像**：镜像（`.mirror/current/`）只是缓存；GitHub 仓库永远是唯一事实源，删掉 `.mirror/` 重启即重建
-
-## 请求流程走读（以"保存文章"为例）
-
-1. 前端 `savePost()` 收集表单 → `PUT /api/posts/:slug`
-2. `routes/api.js` → `postsService.updatePost()`
-3. service 读现有文件（`store.getFile`：生产走镜像 → 未命中走 GitHub API）
-4. `parseMarkdown` 解析 → `mergePostFrontmatter` 合并（未知字段原样保留、`published` 永不覆盖）
-5. `buildMarkdown` 组装 → `store.putFile`（生产：先推 GitHub，成功后回写镜像 + 推进 meta.sha）
-6. 写入后 `invalidateTaxonomies()` 使标签缓存失效（下次 `/taxonomies` 按新内容懒重建）
-7. 响应 `{ ok, data: { message, commitUrl, ... } }` → 前端 toast + 自动返回列表页
-
-## 图片链路（上传 → 预览 → 管理）
-
-```
-上传：POST /api/upload（multer 内存存储，20MB 上限，仅 image/*）
-  ├─ 文章图 → content/posts/<slug>/<MMDD-hash>.<ext>（正文相对引用 ./xxx）
-  └─ 动态图 → public/images/albums/<YYYY-MM-DD>/<MMDD-hash>.<ext>（根路径引用）
-  生产：直接 putFile 推仓库；DEV：暂存内存（image-staging.js）
-
-预览：GET /api/asset?path=<仓库相对路径>（Cookie 认证的图片代理）
-  └─ store.getBinaryFile：镜像/内容仓读取 → 未命中回退 GitHub raw
-     镜像因内容仓 .gitattributes 的 export-ignore 不含 public/，
-     所以动态图在生产模式通常走 raw 回退——这是有意设计（镜像只服务 content/）
-
-前端三处消费同一代理：
-  - 已传图缩略图卡片（drawUploadList）
-  - 动态九宫格（drawMomentImages：/images/... → public/images/...）
-  - EasyMDE 预览（previewRender 重写 img src：./xxx → content/posts/<slug>/xxx）
-```
-
-## 数据持久化清单
-
-| 数据 | 位置 | 生命周期 |
-| --- | --- | --- |
-| 仓库内容镜像 | `.mirror/current/`（仅 content/） | 同步时整体替换；写操作即时回写 |
-| 标签/分类聚合缓存 | `.mirror/taxonomies.json` | 同步成功或内容写入后失效，下次请求懒重建 |
-| DEV 图片暂存 | 进程内存（TTL 2h） | 保存时打包进下载 zip |
-| 会话 | HMAC 签名 Cookie（7 天） | 无服务端状态 |
-
-同步语义（生产模式）：**写直达远端、读走本地镜像、手动同步拉远端**——"同步"按钮的唯一目的是把别处（如 git push）对仓库的更新拉进镜像，写路径从不依赖它。
-
-## DEV 模式与生产模式
-
-同一份代码，`DEV_MODE=1` 切换存储实现（见 `lib/store.js`）：
-
-| 操作 | DEV | 生产 |
-| --- | --- | --- |
-| 读 | 本地内容仓 fs（`DEV_CONTENT_DIR`） | 镜像优先 → GitHub API |
-| 写 | 返回 `devDownload` → 浏览器下载 .md/.zip | 推 GitHub + 回写镜像 |
-| 同步按钮 | 隐藏 | 显示 |
-
-本地验证：`npm run dev` → 保存下载 zip → 解压进内容仓 → 主题仓 `pnpm content:validate` 验格式。
-
-## 本地开发
+## 2. 环境搭建
 
 ```powershell
-cd shirone-admin
+cd shirone-content-edit-tool
 npm install
 Copy-Item .env.example .env.development
-# 编辑 .env.development：ADMIN_PASSWORD、DEV_MODE=1、DEV_CONTENT_DIR 指向本地内容仓
-npm run dev
-# 打开 http://localhost:3777
+# DEV 最小集：ADMIN_PASSWORD、DEV_MODE=1、DEV_CONTENT_DIR 指向本地内容仓
+npm run dev        # http://localhost:3777
 ```
 
-无 lint / test 配置（逻辑测试在主题仓的 tests/ 下，CI 说明见主题仓 docs/ci-and-node-tests.md）。改动后直接刷新页面即可（前端零构建）。
+- **Node ≥ 22.13.0**（`package.json` engines）：`lib/mihealth*.js` 顶层 import `node:sqlite`，更早版本启动即崩
+- 生产环境变量一律以 **`.env.example` 为权威清单**；新增 env 必须三处同步：
+  `lib/config.js` 读取 + `.env.example` 条目 + README（用户可见时）
+- `server.js` 启动前跑 `validateConfig()`，缺配置直接退出并列出缺失项
 
-## 改动指南
+### QA 冒烟台（行为回归工具，不在本仓库内）
 
-| 想做的事 | 要动的文件 |
-| --- | --- |
-| 加/改 API 端点 | `routes/api.js`（注意统一 `{ ok, data }` 包装 + `handleError`） |
-| 加文章 frontmatter 字段 | `lib/content.js`（merge/new 两个函数 + 白名单）→ `services/posts.js` 列表摘要 → `public/app.js` 表单回填与 collect |
-| 改编辑器工具栏/对话框 | `public/app.js`（EasyMDE 配置）→ 需要表单则加 `public/dialogs.js` |
-| 改内容仓路径约定 | `lib/content.js` 的 `postFilePath` / `momentAssetPath` 等（路径规则全部在这） |
-| 加环境变量 | `lib/config.js` + `.env.example` + README |
-| 动镜像/缓存策略 | `lib/mirror-store.js` + `lib/sync.js` |
+本工作区维护了一套冒烟台（随工作区迭代，**不属于仓库内容**）：
 
-### 必须遵守的约定
-
-1. **时间字段全链路 naive 字符串**（`YYYY-MM-DD HH:mm:ss`，无引号写出）——这是为通过 Astro 的 `z.date()` 校验，详见 `lib/content.js` 头部注释，改动前务必读懂
-2. **未知 frontmatter 字段原样保留**（加密文章的 `encrypted/password` 等依赖此行为）
-3. **`published/publishedAt/alias/permalink` 不被表单覆盖**
-4. **镜像操作必须走 `resolveLocal` 防路径穿越**；任何接受路径参数的端点要做同样的校验（参考 `/api/asset` 的白名单）
-5. **写操作成功后回写镜像 + 失效标签缓存**，否则列表/标签池会与远端不一致
-6. 前端保持 vanilla ESM、零构建——不引入框架与打包器是本项目的设计决策
-
-## 部署形态（生产）
-
-```
-systemd（deploy/shirone-admin.service）
-  └─ node server.js（.env 注入配置）
-       ├─ 反代（Caddy/nginx，x-forwarded-proto → Cookie 自动 Secure）
-       ├─ .mirror/（磁盘缓存，含 taxonomies.json）
-       └─ GitHub Contents API（Fine-grained PAT，仅内容仓）
+```bash
+bash /e/tmp/shirone-qa/run-smoke.sh <tag>
 ```
 
-内存占用约 50MB；systemd 单元限制了 256MB。自动部署 webhook（`/api/deploy/hook`）是独立可选功能，配置见 README 的部署章节。
+自动重建内容 fixture → 起服务 → 跑断言 → 保存快照基线（`baseline-<tag>.json`）与
+fixture 清单。用法约定：
+
+- 改 **server 端行为**的变更，改后跑一次并与既有基线 diff：断言 0 失败，快照
+  diff 为空或仅含工单声明的预期增量；
+- 纯前端改动不影响 API 面，冒烟可免，但 `node --check` 与人工走查必做。
+
+### scripts/*.mjs 的定位
+
+| 脚本 | 性质 | 用途 |
+| --- | --- | --- |
+| `scripts/test-mihealth.mjs` | 测试 | 构造 mock mihealth.db → 起服务 → fetch 快照断言（无需真实凭证） |
+| `scripts/test-timeline2.mjs` | 测试 | timeline 服务全链路离线自测（DEV_MODE 下驱动真实代码路径，写不落盘） |
+| `scripts/prune-mihealth.mjs` | 运维工具（非测试） | 删除 N 天前健康数据行控制库体积，手动按需执行 |
+
+## 3. 目录与模块约定
+
+模块清单、依赖图、关键数据流、断点体系**单源见
+[docs/architecture.md](./docs/architecture.md)**，本文不复写目录树。分层纪律：
+
+1. **存储读写只经 `lib/store.js`**：路由层永不直接 import `github.js` / `dev-store.js` /
+   `mirror-store.js`；`lib` 的无状态能力模块（staging / content / geocode 等）可按需使用
+2. **依赖单向**：`routes → services → lib`；services 不 import routes；lib 不 import
+   services/routes（当前代码即如此，勿引入反向边）
+3. **内容格式规则集中在 `lib/content.js`**（frontmatter 合并、时间注入、路径计算）——
+   改格式先读懂该文件头部的时间语义注释
+4. **前端模块单向依赖**：`app.js` 是唯一组合根；跨模块可变共享状态只放 `public/state.js`
+   （`state` 单例 + `timelineData`），纯工具只放 `public/utils.js` 且不反向依赖业务模块
+5. 所有端点统一 `{ ok, data }` / `{ ok: false, error }` 包装 + `handleError`
+   （400 输入非法 / 404 / 409 并发冲突 / 500）；新路由记得挂 `requireAuth`
+   （公开端点除外，参考 `routes/health.js` 的限流与 CORS 头）
+6. 写操作成功后回写镜像 + `invalidateTaxonomies()` 失效标签缓存，否则列表/标签池与远端不一致
+7. 任何接受路径参数的端点必须防路径穿越（`resolveIn` 模式或白名单，参考 `/api/asset`）
+
+## 4. 命名与风格（按现状归纳）
+
+- **lib = 能力模块**，按能力命名（store / staging / sync / deploy / geocode / content /
+  concurrency…）；**services = 领域模块**，按内容域命名（posts / moments / timeline /
+  taxonomy）；routes 仅 `api.js`（认证+业务）与 `health.js`（公开健康数据）两个文件
+- **public 按职责拆分**为单例模块（app / api-client / state / utils / tags / uploads /
+  autosave / dialogs / ext-preview / inline-images / moods / pin-bottom），新前端能力
+  先考虑放进既有模块，确属新职责再立新文件
+- 全部使用**命名导出**（无 default export）；import 用 `import * as` 或具名
+- 注释、报错文案、commit 描述均用**中文**；报错文案面向用户时给可操作指引
+  （例：凭证报错指向 config.json 放置方式，不指向已下线的界面）
+- 样式集中在 `public/style.css`：无预处理器；断点集中在文件尾部 `@media` 区
+  （1280 / 960 / 768 / 400 + 触控/短视口）；深浅色跟随系统（`prefers-color-scheme`）
+- 日期时间值全链路 naive 字符串 `YYYY-MM-DD HH:mm:ss`；前端不发 ISO 带时区串
+
+## 5. Commit 规范
+
+格式：`type(scope): 中文描述`，一个逻辑组一个 commit。
+
+- **type**：`feat` / `fix` / `refactor` / `docs` / `chore`
+- **scope**：小写连字符，取自改动域。历史已用：
+  `sync` `deploy` `ui` `ux` `editor` `api` `time` `mi-login` `mi-sync` `health`
+  `staging` `proxy` `timeline` `tags` `prune` `mirror` `draft` `dedupe` `cleanup` `comments`
+- 描述一行说清**行为变化**；误删恢复、契约回归要在描述里点名（先例：
+  `a64baba` 「恢复 GITHUB_API_BASE/GITHUB_WEB_BASE——f4c6b75 重构误删 4cc689a 代理支持」）
+- 多个 bug 同属一个逻辑组可合并一个 commit（先例：暂存层三连修复 B2+B3+B4）
+
+## 6. 变更纪律（硬性约定）
+
+1. **前端共享状态单一事实源**：跨模块可变状态只能放 `public/state.js`（对象属性可变），
+   禁止模块级 `const` 别名后重新赋值——别名与原对象脱钩后视图瘫痪且难察觉
+   （教训：`timelineCache` 别名瘫痪时间线在线编辑，`5cb740d` 回归 `97b5575`）
+2. **扩展语法三方对齐**：`dialogs.js`（生成端）与 `ext-preview.js`（预览端）的语法口径
+   必须以主题仓 `Shirone/src/plugins/markdown/manifest.json`（已支持语法单一索引）为准，
+   改动前先核对主题解析器实现（教训：tabs 三方互不认，发布产物渲染不出标签页，`ce2bad7`）
+3. **时间字段契约**（README「时间注入规则」表为用户口径）：
+   - 文章 `published` = 站点时区日历日期（写出口恒为日期形态，date-only 老文章的
+     `00:00:00` 规整回日期，`ca69201`）
+   - 文章 `publishedAt` = naive UTC 全串；动态 `published` 必含时分秒
+   - YAML 序列化时时间戳**剥引号输出**，Astro 内容层才能解析成 Date 过 `z.date()`（`38678c8`）
+   - `published/publishedAt/alias/permalink` 不被表单覆盖；未知 frontmatter 字段原样保留
+4. **暂存层契约**：快照恒为四键 `{ form, body, images, baseSha }`（`lib/staging.js`
+   saveDraft 对展平形态有归一化防御，但新代码不得依赖防御）；推送吸收
+   `absorbDraft` 与快照解耦——extraPaths 不依赖快照存在（教训：新建动态带图发布丢图，
+   `1457d5b`）
+5. **server 端行为变更必须跑冒烟快照对比**（见「2. 环境搭建」）；**前端变更必须
+   `node --check` + 人工走查**；两类改动都不引入构建步骤与框架
+6. **删除/重构以 commit 历史为契约**：删除任何已声明功能（端点、env、按钮）必须在
+   commit message 写明，并同步修改全部文档与 `.env.example`（教训：`f4c6b75` 重构静默
+   吞掉 `4cc689a` 的代理功能，三个月后 `a64baba` 才恢复）
+7. **环境变量新增**走「2. 环境搭建」的三处同步；废弃的 env 在 `.env.example`
+   改注遗留语义（先例：`DRAFTS_DIR`），不直接删除条目
+
+## 7. 测试与验证
+
+现状：**仓库无 lint / test 框架**（无 eslint/jest/vitest 配置），主题仓承担内容格式与
+端到端测试。本仓库的验证闸门：
+
+1. **语法**：`node --check <file>`——改动过的每个 js/mjs 都跑（前端 ESM 同样适用）
+2. **行为回归**：QA 冒烟台（`bash /e/tmp/shirone-qa/run-smoke.sh <tag>`，工作区维护，
+   见「2. 环境搭建」）；server 行为变更必跑
+3. **专项脚本**：健康数据 `node scripts/test-mihealth.mjs`；时间线
+   `DEV_MODE=1 DEV_CONTENT_DIR=<内容仓> node scripts/test-timeline2.mjs`
+4. **内容格式**：DEV 下载 zip 解压进内容仓后，主题仓 `pnpm content:validate` 预检
+5. **发布前走查**（人工）：登录 → 三编辑器各建改一篇（含图片/草稿切换）→ 暂存恢复
+   → 同步按钮 → 健康页快照 → DEV 下载 zip 解压验证
+
+## 8. 发布与回滚
+
+- **发布**：服务器拉取代码 → `npm install` → `systemctl restart shirone-admin`
+  （systemd 单元 `deploy/shirone-admin.service`：`ExecStart=node --env-file=.env server.js`，
+  `MemoryMax=256M`，`Restart=on-failure`；部署时需改单元内 User/WorkingDirectory）
+- **回滚**：`git reset --hard <上一 tag 或 commit>` + `systemctl restart shirone-admin`
+- 镜像/缓存无需备份：`.mirror/` 是纯缓存，删掉重启即重建（GitHub 仓库是唯一事实源）；
+  `.staging/` 是暂存层，删掉只丢未推送的自动保存
+- 站点产物回滚（`/www/wwwroot/blog` 的 dist 稀疏检出）见 README「自动部署 hook → 回滚」
+
+## 9. 已知登记项
+
+登记在案、暂不处理的事项（动它们之前先与 owner 确认）：
+
+- **`.tmp-cred2/`**：mock 凭证遗留（仅一个 `config.json`），全仓零代码引用，待 owner 决定删除
+- **`GET /api/session`**：已注册但前端零消费的遗留端点（返回固定 `authenticated: false`
+  + `devMode`）；下轮清理候选，删除时按「变更纪律 6」同步文档
+- **`GET /api/asset` 长缓存**：响应带 `Cache-Control: private, max-age=86400`——文件名含
+  内容 hash，正常换图 = 新文件名无影响；**同名替换图片**时浏览器 24h 内可能命中旧缓存，
+  替换图片请使用新文件名

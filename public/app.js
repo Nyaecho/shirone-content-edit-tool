@@ -961,6 +961,13 @@ async function openPostEditor(slug) {
       const extended = renderExtendedSyntax(plainText);
       const rendered = EasyMDE.prototype.markdown.call(mde, extended);
       preview.innerHTML = rewritePreviewImages(rendered);
+      // 重开预览必须回到顶部：预览 DOM 常驻（EasyMDE 不销毁 pane），上次会话
+      // 的 scrollTop 跨开关残留——内容更新后（如中途插图）二次预览停在旧偏移，
+      // 视野落在空白/图片区，看起来像渲染回退（盲测 F6b）。
+      // 时序坑：EasyMDE 把 active 类放进 setTimeout(1ms)，rAF 回调又先于帧内
+      // style/layout 执行——两处之前 pane 都还没真正显示，写 scrollTop 无效。
+      // 双 rAF 落在 active 类生效后的第二帧，此时 pane 有盒模型，归零才粘得住。
+      requestAnimationFrame(() => requestAnimationFrame(() => { preview.scrollTop = 0; }));
       return null;
     },
     toolbar: [

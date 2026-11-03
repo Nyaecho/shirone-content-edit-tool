@@ -119,6 +119,23 @@ Cookie 在 HTTPS 反代下自动追加 `Secure`（检测 `x-forwarded-proto`）�
 | 动态 | `content/moments/YYYY-MM-DD[-后缀].md` | `published` 必含时分秒 |
 | 动态图片 | `public/images/albums/<YYYY-MM-DD>/*` | 根路径引用 |
 
+## Slug 行为契约
+
+写作台 slug **可留空**：留空时服务端在发布（POST /api/posts）时按站点时区自动生成。
+
+| 场景 | 行为 |
+| --- | --- |
+| 新建文章 slug 留空 | 发布时服务端自动生成 `MMDD-HHmm`（站点时区，如 `1103-1945`）；与仓库现有文章查重，冲突顺延 `MMDD-HHmmss`，仍冲突再 `-2/-3` 递增（上限 20 次） |
+| 新建文章 slug 非空 | 原有校验不变：小写字母/数字/连字符，保留名（about/tags/…）拒用；与现有文章撞车报 409 |
+| 标题实时建议 | 英文/数字标题照旧回填建议值；纯中文标题归一为空串 → 输入框保持留空（不再兜底 "post"） |
+| 上传图片自动回填 | 新建态上传正文图（按钮/拖拽/粘贴）时 slug 输入框为空 → 前端按站点时区生成 `MMDD-HHmm` 回填后再发起上传 |
+| 手改优先 | 任何自动建议/回填都不覆盖用户手动输入过的 slug（输入一次即视为手改） |
+| 自动保存 | 空 slug 快照照常落服务器暂存（走 `_new-` 临时键），发布成功后吸收/清理 |
+| 编辑已发布文章 | slug 只读，不提供修改（不破坏已发布链接） |
+
+- **与 permalink 配合**：内容仓 `config/permalink.yaml` 启用 `%year%-%monthnum%-%postname%` 后，站点 URL 自带年-月前缀，slug 仅作文件名与 URL 后段，留空自动生成即可满足唯一性。
+- 前端回填与服务端生成同构（`Intl.DateTimeFormat('en-CA') + formatToParts`）：前端用 `/api/me` 返回的站点时区，服务端用 `SITE_TIMEZONE`，两者一致（部署约定见上）。
+
 ## 编辑、保存与图片
 
 | 动作 | 推 GitHub？ | 行为 |

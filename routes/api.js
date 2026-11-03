@@ -303,7 +303,9 @@ router.post("/posts", async (req, res) => {
 
     const result = await postsService.createPost(form || {}, String(body || ""), config.siteTimezone);
     invalidateTaxonomies(); // 新内容可能带来新标签/分类，缓存失效即时重建
-    await absorbAfterPush("post", form.slug, result, req.body?.stagedImages);
+    // slug 可能留空由服务端自动生成（工单 D）：吸收暂存必须用最终 slug，
+    // 否则空 slug 时暂存快照无法被吸收（PUT 分支已用 result.slug，口径一致）
+    await absorbAfterPush("post", result.slug, result, req.body?.stagedImages);
     await respondWithSave(res, result, {
       kind: "post",
       slug: result.slug,

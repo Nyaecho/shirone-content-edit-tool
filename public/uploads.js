@@ -1,7 +1,7 @@
 /**
  * 图片上传链路：编辑器拖拽/粘贴/按钮上传 + 文章已传图清单 + 封面图覆盖式上传。
  */
-import { qs, assetUrl, esc, siteSrcToRepoPath } from "./utils.js";
+import { qs, assetUrl, esc, siteSrcToRepoPath, autoSlug } from "./utils.js";
 import { api, toast } from "./api-client.js";
 import { state } from "./state.js";
 import { insertAtCursor } from "./utils.js";
@@ -11,6 +11,20 @@ function momentDateForUpload() {
   const current = state.current.moment?.frontmatter?.published;
   if (typeof current === "string" && /^\d{4}-\d{2}-\d{2}/.test(current)) return current.slice(0, 10);
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * 上传前 slug 回填（用户需求：slug 可留空——工单 D）。
+ * target=post 的上传请求需要 slug 定位文章资产目录，为空时按站点时区
+ * 生成 `MMDD-HHmm` 回填输入框（与服务端发布自动生成同构，手改优先：非空不覆盖）。
+ * uploadOne 是按钮/拖拽/粘贴三条上传链路的统一注入点。
+ */
+function ensurePostSlug() {
+  const input = qs("#pe-slug");
+  if (!input || input.value.trim()) return;
+  input.value = autoSlug(state.timezone);
+  // 派发 input 让 app.js 的 slugTouched 置位（标题建议不再覆盖）并驱动自动保存标脏
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 export function handleUploadFiles(fileList, target) {
@@ -31,8 +45,12 @@ export async function uploadOne(file, target) {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("target", target);
-    if (target === "post") fd.append("slug", qs("#pe-slug").value.trim());
-    else fd.append("momentDate", momentDateForUpload());
+    if (target === "post") {
+      ensurePostSlug(); // slug 留空时自动回填（上传请求与发布共用该 slug）
+      fd.append("slug", qs("#pe-slug").value.trim());
+    } else {
+      fd.append("momentDate", momentDateForUpload());
+    }
 
     const data = await api("/upload", { method: "POST", body: fd });
     item.remove();

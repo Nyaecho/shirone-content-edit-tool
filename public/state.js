@@ -4,6 +4,7 @@
  */
 export const state = {
   devMode: false,
+  timezone: "", // 站点时区（/api/me 返回，boot 时存入；slug 自动回填用，见工单 D）
   view: "posts",
   tags: { post: [], moment: [], timeline: [] },
   current: { post: null, moment: null, timeline: null, autosave: null },

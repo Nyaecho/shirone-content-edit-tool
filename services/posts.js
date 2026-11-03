@@ -103,20 +103,60 @@ export async function getPost(slug) {
 
 export function validatePostInput(form, { isNew }) {
   const errors = [];
-  // slug 校验仅新建语境（update 的 slug 沿用旧值，form.slug 可为空，不可按空校验）
+  // slug 校验仅新建语境（update 的 slug 沿用旧值，form.slug 可为空，不可按空校验）。
+  // 用户需求（工单 D）：新建 slug 可留空——留空由 createPost 按站点时区自动生成；
+  // 非空仍走原有格式 + 保留名校验，title 必填不变。
   if (isNew) {
-    const slugErr = validateSlug(form.slug || "");
-    if (slugErr) errors.push(`slug 无效：${slugErr}`);
-    else if (isReservedSlug(form.slug)) errors.push(`slug "${form.slug}" 与核心路由冲突，请换一个`);
+    const slug = String(form.slug || "").trim();
+    if (slug) {
+      const slugErr = validateSlug(slug);
+      if (slugErr) errors.push(`slug 无效：${slugErr}`);
+      else if (isReservedSlug(slug)) errors.push(`slug "${slug}" 与核心路由冲突，请换一个`);
+    }
   }
   if (!form.title || !String(form.title).trim()) errors.push("标题不能为空");
   return errors;
 }
 
+/**
+ * 留空时自动生成 slug（用户需求：写作台 slug 可留空）。
+ * 站点时区 `MMDD-HHmm`（与 published 注入同口径：Intl en-CA + formatToParts，示例 1103-1945）；
+ * 与仓库现有文章查重：冲突 → `MMDD-HHmmss` → 仍冲突 → `-2/-3` 递增（上限 20 次）。
+ * 全部撞车时抛 CONFLICT（实际发生需 22 篇同分钟创建，属异常兜底）。
+ */
+async function generatePostSlug(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date());
+  const v = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  const base = `${v.month}${v.day}-${v.hour}${v.minute}`;
+  const withSec = `${base}${v.second}`;
+  for (const candidate of [base, withSec]) {
+    if (!(await store.getFile(postFilePath(candidate)))) return candidate;
+  }
+  for (let i = 2; i <= 21; i++) {
+    const candidate = `${withSec}-${i}`;
+    if (!(await store.getFile(postFilePath(candidate)))) return candidate;
+  }
+  const err = new Error("slug 自动生成冲突次数过多，请手动填写");
+  err.code = "CONFLICT";
+  throw err;
+}
+
 export async function createPost(form, body, timeZone) {
+  // 用户需求（工单 D）：slug 可留空——留空按站点时区自动生成并查重避让；
+  // 显式 slug（校验已过）行为不变：撞车仍走 CONFLICT 409
+  const explicit = String(form.slug || "").trim();
+  const slug = explicit || (await generatePostSlug(timeZone));
   const data = newPostFrontmatter(form, timeZone);
   const raw = buildMarkdown(data, body);
-  const path = postFilePath(form.slug);
+  const path = postFilePath(slug);
 
   // 草稿与发布同一存储：draft: true 写进 frontmatter，统一推 GitHub
   const existing = await store.getFile(path);
@@ -132,7 +172,7 @@ export async function createPost(form, body, timeZone) {
       ? `feat(post): 新增草稿《${form.title}》`
       : `feat(post): 新增文章《${form.title}》`,
   );
-  return { path, raw, slug: form.slug, ...result };
+  return { path, raw, slug, ...result };
 }
 
 export async function updatePost(slug, form, body, timeZone) {

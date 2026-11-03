@@ -859,15 +859,17 @@ async function openPostEditor(slug) {
         kind: "post",
         draftId: autosaveId,
         collect: () => {
-          const s = qs("#pe-slug")?.value.trim();
-          if (!s) throw new Error("slug 未填"); // 无 slug 不落暂存
-          // 暂存图清单：正文已传图 + 封面（封面不在正文，显式带上保证多端续写可见）
+          const s = qs("#pe-slug")?.value.trim() || "";
+          // 工单 D：slug 可留空——空 slug 快照照常落暂存（draftId 走 _new-<tempKey> 兜底）；
+          // 仅封面映射依赖 slug 定位文章目录，无 slug 时跳过（封面引用仍在 form.image，不丢）
           const imgs = [...(state.current.post.images || [])];
-          const coverRef = qs("#pe-image")?.value.trim() || "";
-          if (coverRef && !/^(https?:|data:)/i.test(coverRef)) {
-            const coverPath = `content/posts/${s}/${coverRef.replace(/^\.\//, "")}`;
-            if (!imgs.some((i) => i.repoPath === coverPath)) {
-              imgs.push({ repoPath: coverPath, name: coverPath.split("/").pop() });
+          if (s) {
+            const coverRef = qs("#pe-image")?.value.trim() || "";
+            if (coverRef && !/^(https?:|data:)/i.test(coverRef)) {
+              const coverPath = `content/posts/${s}/${coverRef.replace(/^\.\//, "")}`;
+              if (!imgs.some((i) => i.repoPath === coverPath)) {
+                imgs.push({ repoPath: coverPath, name: coverPath.split("/").pop() });
+              }
             }
           }
           // 契约：AutosaveController 期望 {form, body, images, baseSha}——form 必须包一层。
@@ -1071,12 +1073,14 @@ async function openPostEditor(slug) {
   });
   state.editors.postInlineImages = inlineImages;
 
-  // 从标题自动生成 slug 建议（仅当用户尚未手动编辑过 slug）
+  // 从标题自动生成 slug 建议（仅当用户尚未手动编辑过 slug）。
+  // 工单 D：建议归一为空（纯中文标题）→ 不填充输入框，留空由服务端发布时自动生成
   let slugTouched = isNew ? qs("#pe-slug").value.trim().length > 0 : true;
   qs("#pe-slug").addEventListener("input", () => { slugTouched = true; });
   qs("#pe-title").addEventListener("input", () => {
     if (isNew && !slugTouched) {
-      qs("#pe-slug").value = suggestSlug(qs("#pe-title").value);
+      const suggestion = suggestSlug(qs("#pe-title").value);
+      if (suggestion) qs("#pe-slug").value = suggestion;
     }
   });
 
@@ -1503,6 +1507,7 @@ DIALOGS = mountDialogs({ toast });
 api("/me")
   .then((data) => {
     state.devMode = data.devMode;
+    state.timezone = data.timezone || ""; // 站点时区：slug 上传回填 autoSlug 用（工单 D）
     loadTaxonomies(); // 异步预取已有标签/分类（不阻塞渲染，编辑器打开时基本已就绪）
     renderShell();
   })

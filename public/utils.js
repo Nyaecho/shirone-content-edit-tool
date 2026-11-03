@@ -38,17 +38,36 @@ export function siteSrcToRepoPath(src) {
   return s.startsWith("/") ? `public${s.split("?")[0]}` : s;
 }
 
-/** 中文标题 → slug 建议（非 ASCII 字符折叠为连字符） */
+/** 中文标题 → slug 建议（非 ASCII 字符折叠为连字符）。
+ *  归一为空时返回 ""（用户需求：slug 可留空，发布时服务端自动生成），不再兜底 "post"。 */
 export function suggestSlug(title) {
   return String(title)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "post";
+    .slice(0, 60);
+}
+
+/** 时间戳 slug `MMDD-HHmm`（如 1103-1945）：与服务端 createPost 自动生成同构
+ *  （Intl en-CA + formatToParts；服务端用站点时区，此处缺省浏览器本地时区）。
+ *  上传图片自动回填用（用户需求：slug 可留空）。 */
+export function autoSlug(timeZone) {
+  const opts = {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+  };
+  if (timeZone) opts.timeZone = timeZone;
+  const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(new Date());
+  const v = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  return `${v.month}${v.day}-${v.hour}${v.minute}`;
 }
 
 export function suggestSuffix(text) {
-  return suggestSlug(text);
+  // 空兜底改用 HHmm（动态文件名如 2026-11-03-1945.md），不再复用已删除的 "post"
+  return suggestSlug(text) || autoSlug().slice(5);
 }
 
 /** 触发浏览器下载 */
